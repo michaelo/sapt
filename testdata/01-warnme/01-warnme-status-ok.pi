@@ -1,0 +1,3 @@
+> GET https://api.warnme.no/api/status
+Content-Type: application/json
+< 200 "summarized": false

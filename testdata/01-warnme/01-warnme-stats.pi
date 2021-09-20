@@ -1,0 +1,3 @@
+> GET https://api.warnme.no/api/stats
+Content-Type: application/json
+< 200

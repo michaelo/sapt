@@ -15,8 +15,69 @@ const HttpMethod = enum {
     Delete
 };
 
+
+const cURL = @cImport({
+    @cInclude("curl/curl.h");
+});
+
+fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
+    var buffer = @intToPtr(*std.ArrayList(u8), @ptrToInt(user_data));
+    var typed_data = @intToPtr([*]u8, @ptrToInt(data));
+    buffer.appendSlice(typed_data[0 .. nmemb * size]) catch return 0;
+    return nmemb * size;
+}
+
+pub fn request(url: [:0]const u8, expected_http_code: u64, expected_response_regex: ?[:0]const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    defer arena_state.deinit();
+    var allocator = &arena_state.allocator;
+
+    // global curl init, or fail
+    if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
+        return error.CURLGlobalInitFailed;
+    defer cURL.curl_global_cleanup();
+
+    // curl easy handle init, or fail
+    const handle = cURL.curl_easy_init() orelse return error.CURLHandleInitFailed;
+    defer cURL.curl_easy_cleanup(handle);
+
+    var response_buffer = std.ArrayList(u8).init(allocator);
+    defer response_buffer.deinit();
+
+    // setup curl options
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, url) != cURL.CURLE_OK)
+        return error.CouldNotSetURL;
+
+    // set write function callbacks
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToArrayListCallback) != cURL.CURLE_OK)
+        return error.CouldNotSetWriteCallback;
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_buffer) != cURL.CURLE_OK)
+        return error.CouldNotSetWriteCallback;
+
+    // perform
+    if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
+        return error.FailedToPerformRequest;
+
+    var http_code: c_long = 0;
+    _ = cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code);
+    try expectEqual(expected_http_code, http_code);
+    _ = expected_response_regex; // TODO: If set, regex-match the response_buffer.items
+
+    // std.log.info("Got response of {d} bytes. HTTP: {d}", .{response_buffer.items.len, http_code});
+    // std.debug.print("{s}\n", .{response_buffer.items});
+}
+
 pub fn main() anyerror!void {
-    std.log.info("All your codebase are belong to us.", .{});
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = &general_purpose_allocator.allocator;
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
+
+    for (args[1..]) |arg, i| {
+        std.debug.print("{}: {s}\n", .{ i, arg });
+        // TODO: Arg parse handling
+        // if not a flag, assume it's a folder or file, and parse/process accordingly
+    }
 }
 
 const HttpHeader = struct {
@@ -151,12 +212,19 @@ fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray
 test "string exploration" {
     const str1 = "test";
     var buf = initBoundedArray(u8, 64);
+    // comptime {
+    //     const EmptyBounded = try std.BoundedArray(T, capacity).init(0);
+    // }
+    // const EmptyBounded = try std.BoundedArray(u8, capacity).init(0);
+    // var buf2: EmptyBounded;
+    
     try testing.expect(buf.buffer.len == 64);
     try testing.expect(str1.len == 4);
     try testing.expect(buf.slice().len == 0);
     try buf.insertSlice(0, str1);
     try testing.expect(buf.slice().len == 4);
 }
+
 
 test "parse_contents" {
     var entry = Entry.create();
@@ -170,7 +238,7 @@ test "parse_contents" {
         \\< 200   some regex here  
         \\
         ;
-    // debug("{s}\n", .{data});
+
     try parse_contents(data, &entry);
 
     try testing.expectEqual(entry.method, HttpMethod.Get);
@@ -184,5 +252,4 @@ test "parse_contents" {
     try testing.expectEqualStrings("application/json", entry.headers.get(0).value.slice());
     try testing.expectEqualStrings("Accept", entry.headers.get(1).name.slice());
     try testing.expectEqualStrings("application/json", entry.headers.get(1).value.slice());
-    // try expect(entry.headers[0].slice())
 }
