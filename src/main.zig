@@ -1,4 +1,5 @@
 const std = @import("std");
+const fs = std.fs;
 const debug = std.debug.print;
 const testing = std.testing;
 
@@ -15,7 +16,6 @@ const HttpMethod = enum {
     Delete
 };
 
-
 const cURL = @cImport({
     @cInclude("curl/curl.h");
 });
@@ -27,7 +27,8 @@ fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_dat
     return nmemb * size;
 }
 
-pub fn request(url: [:0]const u8, expected_http_code: u64, expected_response_regex: ?[:0]const u8) void {
+// TODO: Take Entry and build request accordingly
+pub fn processEntry(entry: *Entry) !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena_state.deinit();
     var allocator = &arena_state.allocator;
@@ -41,11 +42,12 @@ pub fn request(url: [:0]const u8, expected_http_code: u64, expected_response_reg
     const handle = cURL.curl_easy_init() orelse return error.CURLHandleInitFailed;
     defer cURL.curl_easy_cleanup(handle);
 
+    // TODO: Can get rid of heap
     var response_buffer = std.ArrayList(u8).init(allocator);
     defer response_buffer.deinit();
 
     // setup curl options
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, url) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, entry.url.slice().ptr) != cURL.CURLE_OK)
         return error.CouldNotSetURL;
 
     // set write function callbacks
@@ -58,13 +60,19 @@ pub fn request(url: [:0]const u8, expected_http_code: u64, expected_response_reg
     if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
         return error.FailedToPerformRequest;
 
-    var http_code: c_long = 0;
+    var http_code: u64 = 0;
     _ = cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code);
-    try expectEqual(expected_http_code, http_code);
-    _ = expected_response_regex; // TODO: If set, regex-match the response_buffer.items
+    // debug("Got code: {d} for url {s}\n", .{http_code, url});
+    // try testing.expect(expected_http_code == http_code);
+    entry.result.response_http_code = http_code;
 
-    // std.log.info("Got response of {d} bytes. HTTP: {d}", .{response_buffer.items.len, http_code});
-    // std.debug.print("{s}\n", .{response_buffer.items});
+    // TODO: Replace str-match with proper regexp handling
+    entry.result.response_match = std.mem.indexOf(u8, response_buffer.items, entry.expected_response_regex.slice()) != null;
+    // TODO: Log response if given parameter? 
+}
+
+pub fn evaluateEntryResult(entry: *Entry) bool {
+    return entry.expected_http_code == entry.result.response_http_code;
 }
 
 pub fn main() anyerror!void {
@@ -73,11 +81,62 @@ pub fn main() anyerror!void {
     const args = try std.process.argsAlloc(gpa);
     defer std.process.argsFree(gpa, args);
 
+    var buf = initBoundedArray(u8, 1024*1024);
+
     for (args[1..]) |arg, i| {
-        std.debug.print("{}: {s}\n", .{ i, arg });
+        // std.debug.print("{}: {s}\n", .{ i, arg });
+        try readFile(u8, buf.buffer.len, arg, &buf);
+        // debug(
+        //     \\Processing: {s}
+        //     \\Contents:
+        //     \\{s}
+        //     \\
+        //     , .{arg, buf.slice()});
+
+        var entry = Entry.create();
+        try parseContents(buf.slice(), &entry);
+        try entry.url.append(0); // TODO: create a function that takes a slice and copies it to a sentinel-terminated c-str
+        // debug("About to check URL: {s}\n", .{entry.url.slice()});
+        // const sentinel_ptr = @ptrCast([*:0]const u8, &entry.url.buffer);
+        // try request(std.mem.sliceTo(sentinel_ptr,0), entry.expected_http_code, null);
+        try processEntry(&entry);
+        debug("{d}/{d} {s:<64}: {s} {s:<64}: {d}\n", .{i+1, args.len-1, arg, entry.method, entry.url.slice(), evaluateEntryResult(&entry)});
+        // std.mem.sliceTo(&buf.buffer, 0)
         // TODO: Arg parse handling
         // if not a flag, assume it's a folder or file, and parse/process accordingly
     }
+}
+
+pub fn readFileRaw(path: []const u8, target_buf: []u8) !usize {
+    // Reads contents and store in target_buf
+    var file = try fs.cwd().openFile(path, .{.read=true});
+    defer file.close();
+
+    return try file.readAll(target_buf[0..]);
+}
+
+pub fn readFile(comptime T:type, comptime S:usize, path: []const u8, target_buf: *std.BoundedArray(T, S)) !void {
+    // Reads contents and store in target_buf
+    var file = try fs.cwd().openFile(path, .{.read=true});
+    defer file.close();
+
+    const size = try file.getEndPos();
+    try target_buf.resize(std.math.min(size, target_buf.capacity()));
+    _ = try file.readAll(target_buf.slice()[0..]);
+}
+
+test "readFile" {
+    var buf = initBoundedArray(u8, 1024*1024);
+    try testing.expect(buf.slice().len == 0);
+    try readFile(u8, buf.buffer.len, "testdata/01-warnme/01-warnme-stats.pi", &buf);
+    try testing.expect(buf.slice().len > 0);
+}
+
+test "readFileRaw" {
+    var buf = initBoundedArray(u8, 1024*1024);
+    try testing.expect(buf.slice().len == 0);
+    try buf.resize(try readFileRaw("testdata/01-warnme/01-warnme-stats.pi", buf.buffer[0..]));
+    try testing.expect(buf.slice().len > 0);
 }
 
 const HttpHeader = struct {
@@ -91,6 +150,7 @@ const HttpHeader = struct {
     }
 };
 
+// TODO: Test if we can use e.g. initBoundedArray(u8, 1024) for default-init to get rid of .create()
 const Entry = struct {
     name: std.BoundedArray(u8,1024),
     method: HttpMethod,
@@ -99,6 +159,10 @@ const Entry = struct {
     payload: std.BoundedArray(u8,1024*1024),
     expected_http_code: u64, // 0 == don't care
     expected_response_regex: std.BoundedArray(u8,1024),
+    result: struct {
+        response_http_code: u64 = 0,
+        response_match: bool = false,
+    },
 
     pub fn create() Entry {
         return Entry {
@@ -109,6 +173,7 @@ const Entry = struct {
             .payload = initBoundedArray(u8, 1024*1024),
             .expected_http_code = 0,
             .expected_response_regex = initBoundedArray(u8, 1024),
+            .result = .{},
         };
     }
 };
@@ -149,7 +214,7 @@ fn parseStrToDec(comptime T: type, str: []const u8) T {
     return result;
 }
 
-fn parse_contents(data: []const u8, result: *Entry) errors!void {
+fn parseContents(data: []const u8, result: *Entry) errors!void {
     const ParseState = enum {
         Init,
         InputSection,
@@ -212,12 +277,7 @@ fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray
 test "string exploration" {
     const str1 = "test";
     var buf = initBoundedArray(u8, 64);
-    // comptime {
-    //     const EmptyBounded = try std.BoundedArray(T, capacity).init(0);
-    // }
-    // const EmptyBounded = try std.BoundedArray(u8, capacity).init(0);
-    // var buf2: EmptyBounded;
-    
+
     try testing.expect(buf.buffer.len == 64);
     try testing.expect(str1.len == 4);
     try testing.expect(buf.slice().len == 0);
@@ -226,7 +286,7 @@ test "string exploration" {
 }
 
 
-test "parse_contents" {
+test "parseContents" {
     var entry = Entry.create();
 
     const data =
@@ -239,7 +299,7 @@ test "parse_contents" {
         \\
         ;
 
-    try parse_contents(data, &entry);
+    try parseContents(data, &entry);
 
     try testing.expectEqual(entry.method, HttpMethod.Get);
     try testing.expectEqualStrings(entry.url.slice(), "https://api.warnme.no/api/status");
@@ -252,4 +312,28 @@ test "parse_contents" {
     try testing.expectEqualStrings("application/json", entry.headers.get(0).value.slice());
     try testing.expectEqualStrings("Accept", entry.headers.get(1).name.slice());
     try testing.expectEqualStrings("application/json", entry.headers.get(1).value.slice());
+}
+
+
+test "Casting to sentinel" {
+    var mystr = "hei";
+    var buf = initBoundedArray(u8, 128);
+    try buf.insertSlice(0, "hei");
+    try buf.append(0);
+    debug("type: {s}\n", .{@TypeOf(mystr)});
+    debug("type: {s}\n", .{@TypeOf(buf.slice())});
+
+
+    debug("type: {s}\n", .{@TypeOf(std.mem.sliceTo(&buf.buffer, 0))});
+    const sentinel_ptr = @ptrCast([*:0]u8, &buf.buffer);
+    debug("type: {s}\n", .{@TypeOf(sentinel_ptr)});
+
+    debug("value: {s}\n", .{buf.slice()});
+    debug("value: {s}\n", .{std.mem.sliceTo(sentinel_ptr, 0)});
+}
+
+test "string find" {
+    var mystr = "Woop di doo";
+    try testing.expect(null == std.mem.indexOf(u8, mystr, "dim"));
+    try testing.expect(5 == std.mem.indexOf(u8, mystr, "di").?);
 }
