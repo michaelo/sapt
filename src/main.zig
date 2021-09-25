@@ -10,7 +10,6 @@ const cURL = @cImport({
     @cInclude("curl/curl.h");
 });
 
-
 pub const errors = error {
     Ok,
     ParseError,
@@ -35,6 +34,17 @@ pub const HttpHeader = struct {
     }
 };
 
+pub const ExtractionEntry = struct {
+    name: std.BoundedArray(u8,256),
+    expression: std.BoundedArray(u8,1024),
+    pub fn create(name: []const u8, value: []const u8) !ExtractionEntry {
+        return ExtractionEntry {
+            .name = std.BoundedArray(u8,256).fromSlice(std.mem.trim(u8, name, " ")) catch { return errors.ParseError; },
+            .expression = std.BoundedArray(u8,1024).fromSlice(std.mem.trim(u8, value, " ")) catch { return errors.ParseError; },
+        };
+    }
+};
+
 // TODO: Test if we can use e.g. initBoundedArray(u8, 1024) for default-init to get rid of .create()
 pub const Entry = struct {
     name: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
@@ -44,6 +54,7 @@ pub const Entry = struct {
     payload: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
     expected_http_code: u64 = 0, // 0 == don't care
     expected_response_regex: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    extraction_entries: std.BoundedArray(ExtractionEntry,32) = initBoundedArray(ExtractionEntry, 32),
     result: struct {
         response_http_code: u64 = 0,
         response_match: bool = false,

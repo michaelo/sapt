@@ -7,6 +7,7 @@ const errors = main.errors;
 const Entry = main.Entry;
 const HttpMethod = main.HttpMethod;
 const HttpHeader = main.HttpHeader;
+const ExtractionEntry = main.ExtractionEntry;
 
 fn parseHttpMethod(raw: []const u8) errors!HttpMethod {
     if(std.mem.eql(u8, raw, "GET")) {
@@ -90,6 +91,11 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
             },
             ParseState.OutputSection => {
                 // TODO: Nothing to do?
+                if(line.len == 0) continue;
+                var lit = std.mem.split(u8, line, "=");
+                result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch {
+                    return errors.ParseError;
+                };
             }
         }
     }
@@ -140,26 +146,25 @@ test "parseContents extracts to variables" {
         ;
 
     try parseContents(data, &entry);
-    try testing.expect(false);
+    // debug("sizeof(Entry): {}\n", .{@intToFloat(f64,@sizeOf(Entry))/1024/1024});
+    try testing.expectEqual(@intCast(usize, 1), entry.extraction_entries.slice().len);
+    try testing.expectEqualStrings("myvar", entry.extraction_entries.get(0).name.slice());
+    try testing.expectEqualStrings("regexwhichextractsvalue", entry.extraction_entries.get(0).expression.slice());
 }
 
-const Pair = struct {
+const KeyValuePair = struct {
     key: std.BoundedArray(u8,1024) = main.initBoundedArray(u8, 1024),
     value: std.BoundedArray(u8,1024) = main.initBoundedArray(u8, 1024),
-    pub fn create(key: []const u8, value: []const u8) !Pair {
-        var result = Pair{};
+    pub fn create(key: []const u8, value: []const u8) !KeyValuePair {
+        var result = KeyValuePair{};
         try result.key.insertSlice(0, key);
         try result.value.insertSlice(0, value);
         return result;
-        // return .{
-        //     .key = key.insertSlice(0, key),
-        //     .value = value.insertSlice(0, value),
-        // };
     }
 };
 
 /// buffer must be big enough to store the expanded variables. TBD: Manage on heap?
-pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), variables: []Pair) !void {
+pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), variables: []KeyValuePair) !void {
     if(buffer.slice().len == 0) return;
 
     const MAX_VARIABLES = 64;
@@ -169,7 +174,7 @@ pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(
 
 
 test "expandVariablesAndFunctions" {
-    var variables = [_]Pair{try Pair.create("key", "value")};
+    var variables = [_]KeyValuePair{try KeyValuePair.create("key", "value")};
     try testing.expectEqualStrings("key", variables[0].key.slice());
     try testing.expectEqualStrings("value", variables[0].value.slice());
     // try testing.expect(mypair.key.capacity() == 1024);
@@ -198,7 +203,6 @@ test "expandVariablesAndFunctions" {
     }
 }
 
-// , variables: []Pair
 const BracketPair = struct {
     start: usize = undefined,
     end: usize = undefined,
@@ -211,7 +215,6 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
     var skip_next = false;
 
     for(buffer.slice()[0..buffer.slice().len-1]) |char, i| {
-        // var si = @intCast(i64, i);
         if(skip_next) {
             skip_next = false;
             continue;
@@ -244,7 +247,6 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
             else => {}
         }
     }
-    // debug("\n", .{});
 
     if(opens.slice().len > 0) {
         for(opens.slice()) |idx| debug("ERROR: Brackets remaining open: idx={d}\n", .{idx});
@@ -282,7 +284,7 @@ pub fn expandVariables(comptime BufferSize: usize,
                        comptime MaxNumVariables: usize,
                        buffer: *std.BoundedArray(u8, BufferSize),
                        pairs: *std.BoundedArray(BracketPair, MaxNumVariables),
-                       variables: []Pair) !void {
+                       variables: []KeyValuePair) !void {
     // Algorithm:
     // * prereq: pairs are sorted by depth, desc
     // * pick entry from pairs until empty
@@ -326,7 +328,7 @@ test "bracketparser" {
     \\{{myfunc({{var3}})}}
     \\end
     );
-    var variables = [_]Pair{try Pair.create("var1", "value1"), try Pair.create("var2", "v2"), try Pair.create("var3", "woop")};
+    var variables = [_]KeyValuePair{try KeyValuePair.create("var1", "value1"), try KeyValuePair.create("var2", "v2"), try KeyValuePair.create("var3", "woop")};
     // var functions = [_]Pair{};
 
     // TODO: How to detect functions... ()? Or <known keyword>()?
