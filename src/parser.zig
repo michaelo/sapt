@@ -83,6 +83,7 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
                         return errors.ParseError;
                     };
                 } else {
+                    // Parse headers
                     var lit = std.mem.split(u8, line, ":");
                     result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch {
                         return errors.ParseError;
@@ -90,7 +91,7 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
                 }
             },
             ParseState.OutputSection => {
-                // TODO: Nothing to do?
+                // Parse extraction entries
                 if(line.len == 0) continue;
                 var lit = std.mem.split(u8, line, "=");
                 result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch {
@@ -278,6 +279,25 @@ test "addUnsignedSigned" {
     try testing.expectError(error.Overflow, addUnsignedSigned(u64, i64, std.math.maxInt(u64), 1));
 }
 
+
+fn getValue(variables: []KeyValuePair, key: []const u8) ![]const u8 {
+    // TODO: Optimize by ordering list and do binary search
+    for(variables) |*entry| {
+        if(std.mem.eql(u8, (entry.key.constSlice()[0..]), key)) {
+            return entry.value.constSlice();
+        }
+    }
+    return error.ParseError; // TODO: Add better error
+}
+
+test "getValue" {
+    var variables = [_]KeyValuePair{try KeyValuePair.create("var1", "value1"), try KeyValuePair.create("var2", "v2"), try KeyValuePair.create("var3", "woop")};
+    try testing.expectEqualStrings("value1", try getValue(variables[0..], "var1"));
+    try testing.expectEqualStrings("v2", try getValue(variables[0..], "var2"));
+    try testing.expectEqualStrings("woop", try getValue(variables[0..], "var3"));
+}
+
+
 /// Buffer must be large enough to contain the expanded variant.
 /// TODO: Test performance with fixed sizes. Possibly redesign the outer to utilize a common scrap buffer
 pub fn expandVariables(comptime BufferSize: usize,
@@ -294,16 +314,17 @@ pub fn expandVariables(comptime BufferSize: usize,
     // * substitute slice in buffer
     // * loop through all remaining pairs and any .start or .end that's > prev.end + end_delta with x + end_delta
 
-    _ = variables;
-    _ = buffer;
-
     std.sort.sort(BracketPair, pairs.slice(), {}, byDepthDesc);
 
     for(pairs.slice()) |pair, i| {
         var pair_len = pair.end-pair.start+1;
         var key = buffer.slice()[pair.start+2..pair.end-1];
-        _ = key; // TODO: use to lookup value / func
-        var value = variables[0].value.slice();
+        // check if key is a variable or function
+        if(std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null) {
+            // Found function, move on
+            continue;
+        }
+        var value = try getValue(variables, key);
         var value_len = value.len;
         var end_delta: i64 = @intCast(i32, value_len) - (@intCast(i32, key.len)+4); // 4 == {{}}
         buffer.replaceRange(pair.start, pair_len, value) catch {
@@ -334,6 +355,11 @@ test "bracketparser" {
     // TODO: How to detect functions... ()? Or <known keyword>()?
     var pairs = try findAllVariables(str.buffer.len, MAX_VARIABLES, &str);
     try expandVariables(str.buffer.len, MAX_VARIABLES, &str, &pairs, variables[0..]);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var1}}") == null);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var2}}") == null);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var3}}") == null);
 
-    // debug("Result: {s}\n", .{str.slice()});
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "value1") != null);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "v2") != null);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "woop") != null);
 }
