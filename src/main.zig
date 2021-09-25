@@ -37,30 +37,17 @@ pub const HttpHeader = struct {
 
 // TODO: Test if we can use e.g. initBoundedArray(u8, 1024) for default-init to get rid of .create()
 pub const Entry = struct {
-    name: std.BoundedArray(u8,1024),
-    method: HttpMethod,
-    url: std.BoundedArray(u8,2048),
-    headers: std.BoundedArray(HttpHeader,32), // TODO: Make BoundedArray of HttpHeader?
-    payload: std.BoundedArray(u8,1024*1024),
-    expected_http_code: u64, // 0 == don't care
-    expected_response_regex: std.BoundedArray(u8,1024),
+    name: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    method: HttpMethod = undefined,
+    url: std.BoundedArray(u8,2048) = initBoundedArray(u8, 2048),
+    headers: std.BoundedArray(HttpHeader,32) = initBoundedArray(HttpHeader, 32),
+    payload: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
+    expected_http_code: u64 = 0, // 0 == don't care
+    expected_response_regex: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
     result: struct {
         response_http_code: u64 = 0,
         response_match: bool = false,
-    },
-
-    pub fn create() Entry {
-        return Entry {
-            .name = initBoundedArray(u8, 1024),
-            .method = undefined,
-            .url =  initBoundedArray(u8, 2048),
-            .headers = initBoundedArray(HttpHeader, 32), // [_]std.BoundedArray(u8, 256){initBoundedArray(u8, 256)}**32,
-            .payload = initBoundedArray(u8, 1024*1024),
-            .expected_http_code = 0,
-            .expected_response_regex = initBoundedArray(u8, 1024),
-            .result = .{},
-        };
-    }
+    } = .{},
 };
 
 fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
@@ -114,7 +101,7 @@ pub fn processEntry(entry: *Entry) !void {
 }
 
 pub fn evaluateEntryResult(entry: *Entry) bool {
-    return entry.expected_http_code == entry.result.response_http_code;
+    return entry.expected_http_code == 0 or entry.expected_http_code == entry.result.response_http_code;
 }
 
 pub fn main() anyerror!void {
@@ -129,7 +116,7 @@ pub fn main() anyerror!void {
         // std.debug.print("{}: {s}\n", .{ i, arg });
         try io.readFile(u8, buf.buffer.len, arg, &buf);
 
-        var entry = Entry.create();
+        var entry = Entry{};
         try entry.name.insertSlice(0, arg);
         try parser.parseContents(buf.slice(), &entry);
         try entry.url.append(0); // TODO: create a function that takes a slice and copies it to a sentinel-terminated c-str where we need it for interop.
@@ -145,7 +132,7 @@ pub fn main() anyerror!void {
 }
 
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
-fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
-    return (std.BoundedArray(T, capacity)){.buffer=undefined};
+pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
+    return std.BoundedArray(T, capacity){.buffer=undefined};
 }
 
