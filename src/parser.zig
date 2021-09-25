@@ -297,6 +297,73 @@ test "getValue" {
     try testing.expectEqualStrings("woop", try getValue(variables[0..], "var3"));
 }
 
+// TODO: Function should accept out-buffer as well
+const FunctionEntryFuncPtr = fn ([]const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
+
+const FunctionEntry = struct {
+    name: []const u8,
+    function: FunctionEntryFuncPtr,
+    fn create(name:[]const u8, function: FunctionEntryFuncPtr) FunctionEntry {
+        return .{
+            .name = name,
+            .function = function
+        };
+    }
+};
+
+fn func_woop(value:[]const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+    _ = value;
+    try out_buf.insertSlice(0, "woop");
+}
+
+fn func_blank(value:[]const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+    _ = value;
+    try out_buf.insertSlice(0, "");
+}
+
+fn func_myfunc(value:[]const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+    try out_buf.insertSlice(0, value);
+}
+
+// fn func_base64enc(value:[]const u8) []const u8 {
+//     _ = value;
+//     var b64 = base64.Base64Encoder{};
+//     return "";
+// }
+
+const global_functions = [_]FunctionEntry{
+    FunctionEntry.create("woopout", func_woop),
+    FunctionEntry.create("blank", func_blank),
+    FunctionEntry.create("myfunc", func_myfunc),
+};
+
+fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
+
+    for(global_functions) |*entry| {
+        if(std.mem.eql(u8, entry.name, name)) {
+            return entry.function;
+        }
+    }
+
+    return errors.ParseError; // TODO: Better error
+}
+
+test "getFunction" {
+    var buf = main.initBoundedArray(u8, 1024);
+    try (try getFunction("woopout"))("doesntmatter", &buf);
+    try testing.expectEqualStrings("woop", buf.slice());
+
+    try buf.resize(0);
+    try (try getFunction("blank"))("doesntmatter", &buf);
+    try testing.expectEqualStrings("", buf.slice());
+
+    try buf.resize(0);
+    try testing.expectError(errors.ParseError, getFunction("nosuchfunction"));
+
+    try (try getFunction("myfunc"))("mydata", &buf);
+    try testing.expectEqualStrings("mydata", buf.slice());
+}
+
 
 /// Buffer must be large enough to contain the expanded variant.
 /// TODO: Test performance with fixed sizes. Possibly redesign the outer to utilize a common scrap buffer
@@ -315,22 +382,36 @@ pub fn expandVariables(comptime BufferSize: usize,
     // * loop through all remaining pairs and any .start or .end that's > prev.end + end_delta with x + end_delta
 
     std.sort.sort(BracketPair, pairs.slice(), {}, byDepthDesc);
-
+    var end_delta: i64 = 0;
     for(pairs.slice()) |pair, i| {
         var pair_len = pair.end-pair.start+1;
         var key = buffer.slice()[pair.start+2..pair.end-1];
         // check if key is a variable or function
         if(std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null) {
-            // Found function, move on
-            continue;
+            // Found function:
+            // Parse function name, extract "parameter", lookup and call proper function
+            var func_key = key[0..std.mem.indexOf(u8, key, "(").?];
+            var func_arg = key[std.mem.indexOf(u8, key, "(").?+1    ..std.mem.indexOf(u8, key, ")").?];
+            // debug("Found func: {s} - {s}\n", .{func_key, func_arg});
+            var function = try getFunction(func_key);
+            var func_buf = main.initBoundedArray(u8, 1024);
+            try function(func_arg, &func_buf);
+            // debug("  result: {s}\n", .{func_buf.slice()});
+
+            buffer.replaceRange(pair.start, pair_len, func_buf.slice()) catch {
+                // debug("Could not replace '{s}' with '{s}'\n", .{key_slice, variables[0].value.slice()});
+                return errors.ParseError; // TODO: Need more errors
+            };
+            end_delta = @intCast(i32, func_buf.slice().len) - (@intCast(i32, key.len)+4); // 4 == {{}}
+        } else {
+            var value = try getValue(variables, key);
+            var value_len = value.len;
+            end_delta = @intCast(i32, value_len) - (@intCast(i32, key.len)+4); // 4 == {{}}
+            buffer.replaceRange(pair.start, pair_len, value) catch {
+                // debug("Could not replace '{s}' with '{s}'\n", .{key_slice, variables[0].value.slice()});
+                return errors.ParseError; // TODO: Need more errors
+            };
         }
-        var value = try getValue(variables, key);
-        var value_len = value.len;
-        var end_delta: i64 = @intCast(i32, value_len) - (@intCast(i32, key.len)+4); // 4 == {{}}
-        buffer.replaceRange(pair.start, pair_len, value) catch {
-            // debug("Could not replace '{s}' with '{s}'\n", .{key_slice, variables[0].value.slice()});
-            return errors.ParseError; // TODO: Need more errors
-        };
 
         for(pairs.slice()[i..]) |*pair2| {
             if(pair2.start > @intCast(i64, pair.end)+end_delta) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
@@ -358,6 +439,7 @@ test "bracketparser" {
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var1}}") == null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var2}}") == null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var3}}") == null);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "{{myfunc") == null);
 
     try testing.expect(std.mem.indexOf(u8, str.slice(), "value1") != null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "v2") != null);
