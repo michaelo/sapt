@@ -41,62 +41,116 @@ fn parseStrToDec(comptime T: type, str: []const u8) T {
     return result;
 }
 
+fn isEmptyLineOrComment(line: []const u8) bool {
+    return (line.len == 0 or line[0] == '#');
+}
+
+
+
 pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     const ParseState = enum {
         Init,
         InputSection,
+        InputPayloadSection,
         OutputSection,
+        // PersistSection,
     };
+
+    const ParserFunctions = struct {
+        fn parseInputSectionHeader(line: []const u8, _result: *Entry) !void {
+            var lit = std.mem.split(u8, line[0..], " ");
+            _ = lit.next(); // skip >
+            _result.method = try parseHttpMethod(lit.next().?[0..]);
+            const url = lit.next().?[0..];
+            _result.url.insertSlice(0, url) catch {
+                return errors.ParseError;
+            };
+        }
+
+        fn parseOutputSectionHeader(line: []const u8, _result: *Entry) !void {
+            var lit = std.mem.split(u8, line, " ");
+            _ = lit.next(); // skip <
+            _result.expected_http_code = parseStrToDec(u64, lit.next().?[0..]);
+            _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch {
+                // Too big?
+                return errors.ParseError;
+            };
+        }
+
+        fn parseHeaderEntry(line: []const u8, _result: *Entry) !void {
+            var lit = std.mem.split(u8, line, ":");
+            _result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch {
+                return errors.ParseError;
+            };
+        }
+
+        fn parseExtractionEntry(line: []const u8, _result: *Entry) !void {
+            var lit = std.mem.split(u8, line, "=");
+            _result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch {
+                return errors.ParseError;
+            };
+        }
+
+        fn parseInputPayloadLine(line: []const u8, _result: *Entry) !void {
+            _result.payload.appendSlice(line) catch {
+                return errors.ParseError;
+            };
+            _result.payload.append('\n') catch {
+                return errors.ParseError;
+            };
+        }
+    };
+
     // result.name[0] = 'H';
     // Name is set based on file name - i.e: not handled here
     // Tokenize by line ending. Check for first char being > and < to determine sections, then do section-specific parsing.
     var state = ParseState.Init;
     var it = std.mem.split(u8, data, "\n");
     while(it.next()) |line| {
+        // // Ignore empty lines: TBD: Not applicable for payload-section
+        // if(line.len == 0) continue;
+        // // Ignore comments (lines starting with #)
+        // if(line[0] == '#') continue;
+
         // TODO: Refactor. State-names are confusing.
         switch(state) {
             ParseState.Init => {
+                if(isEmptyLineOrComment(line)) continue;
                 if(line[0] == '>') {
                     state = ParseState.InputSection;
-
-                    var lit = std.mem.split(u8, line[0..], " ");
-                    _ = lit.next(); // skip >
-                    result.method = try parseHttpMethod(lit.next().?[0..]);
-                    const url = lit.next().?[0..];
-                    result.url.insertSlice(0, url) catch {
-                        return errors.ParseError;
-                    };
+                    try ParserFunctions.parseInputSectionHeader(line, result);
                 } else {
                     return errors.ParseError;
                 }
             },
             ParseState.InputSection => {
-                if(line.len == 0) continue;
+                if(isEmptyLineOrComment(line)) continue;
+                if(line[0] == '-') {
+                    state = ParseState.InputPayloadSection;
+                } else if(line[0] == '<') {
+                    // Parse initial expected output section
+                    state = ParseState.OutputSection;
+                    try ParserFunctions.parseOutputSectionHeader(line, result);
+                } else {
+                    // Parse headers
+                    try ParserFunctions.parseHeaderEntry(line, result);
+                }
+            },
+            ParseState.InputPayloadSection => { // Optional section
                 if(line[0] == '<') {
                     // Parse initial expected output section
                     state = ParseState.OutputSection;
-                    var lit = std.mem.split(u8, line, " ");
-                    _ = lit.next(); // skip <
-                    result.expected_http_code = parseStrToDec(u64, lit.next().?[0..]);
-                    result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch {
-                        // Too big?
-                        return errors.ParseError;
-                    };
+                    try ParserFunctions.parseOutputSectionHeader(line, result);
                 } else {
-                    // Parse headers
-                    var lit = std.mem.split(u8, line, ":");
-                    result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch {
-                        return errors.ParseError;
-                    };
+                    // Add each line verbatim to payload-buffer
+                    try ParserFunctions.parseInputPayloadLine(line, result);
                 }
             },
             ParseState.OutputSection => {
-                // Parse extraction entries
-                if(line.len == 0) continue;
-                var lit = std.mem.split(u8, line, "=");
-                result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch {
-                    return errors.ParseError;
-                };
+                if(isEmptyLineOrComment(line)) continue;
+
+                // Parse extraction_entries
+                try ParserFunctions.parseExtractionEntry(line, result);
             }
         }
     }
@@ -444,4 +498,43 @@ test "bracketparser" {
     try testing.expect(std.mem.indexOf(u8, str.slice(), "value1") != null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "v2") != null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "woop") != null);
+}
+
+
+test "parseContents ignores comments" {
+    var entry = Entry{};
+
+    const data =
+        \\> GET https://api.warnme.no/api/status
+        \\
+        \\# Content-Type: application/json
+        \\# Accept: application/json
+        \\
+        \\< 200   some regex here  
+        \\
+        ;
+
+    try parseContents(data, &entry);
+    try testing.expect(entry.headers.slice().len == 0);
+}
+
+test "parseContents shall extract payload" {
+    var entry = Entry{};
+
+    const data =
+        \\> GET https://api.warnme.no/api/status
+        \\
+        \\Content-Type: application/json
+        \\Accept: application/json
+        \\
+        \\-
+        \\Payload goes here
+        \\and here
+        \\< 200   some regex here  
+        \\
+        ;
+
+    try parseContents(data, &entry);
+    // TODO: Should we trim trailing newline of payload?
+    try testing.expectEqualStrings("Payload goes here\nand here\n", entry.payload.slice());
 }
