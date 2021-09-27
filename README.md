@@ -3,7 +3,7 @@ API-tester
 
 A simple tool to counter e.g. Postman.
 
-Usage:
+Usage: Simple
 -------------
     testsuite/01-mytest.pi contents:
     
@@ -13,6 +13,13 @@ Usage:
 
     % apitester testsuite/01-mytest.pi
     1/1 testsuite/01-mytest.pi (10x) [0.1s-0.4s] avg. 0.2s    : OK
+
+
+Usage: playbook
+-----------
+    myplay.book contents:
+    myproj/auth.pi 1
+    myproj/api_get.pi 100
 
 
 Design goals:
@@ -30,6 +37,7 @@ TODO:
 * Support both keeping variables between as well as explicitly allowing sandboxing of tests
 * Support paralllel requests? Both for general perceived performance as well as for stress-tests
 * Support response-time as test-prereq? Perhaps in playlist
+* Test/verify safety of string lengths: parsing + how we add 0 for c-interop
 
 Later:
 ------

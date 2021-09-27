@@ -41,11 +41,6 @@ fn parseStrToDec(comptime T: type, str: []const u8) T {
     return result;
 }
 
-fn isEmptyLineOrComment(line: []const u8) bool {
-    return (line.len == 0 or line[0] == '#');
-}
-
-
 
 pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     const ParseState = enum {
@@ -53,10 +48,13 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
         InputSection,
         InputPayloadSection,
         OutputSection,
-        // PersistSection,
     };
 
     const ParserFunctions = struct {
+        fn isEmptyLineOrComment(line: []const u8) bool {
+            return (line.len == 0 or line[0] == '#');
+        }
+        
         fn parseInputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line[0..], " ");
             _ = lit.next(); // skip >
@@ -101,21 +99,15 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
         }
     };
 
-    // result.name[0] = 'H';
     // Name is set based on file name - i.e: not handled here
     // Tokenize by line ending. Check for first char being > and < to determine sections, then do section-specific parsing.
     var state = ParseState.Init;
     var it = std.mem.split(u8, data, "\n");
     while(it.next()) |line| {
-        // // Ignore empty lines: TBD: Not applicable for payload-section
-        // if(line.len == 0) continue;
-        // // Ignore comments (lines starting with #)
-        // if(line[0] == '#') continue;
-
         // TODO: Refactor. State-names are confusing.
         switch(state) {
             ParseState.Init => {
-                if(isEmptyLineOrComment(line)) continue;
+                if(ParserFunctions.isEmptyLineOrComment(line)) continue;
                 if(line[0] == '>') {
                     state = ParseState.InputSection;
                     try ParserFunctions.parseInputSectionHeader(line, result);
@@ -124,7 +116,7 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
                 }
             },
             ParseState.InputSection => {
-                if(isEmptyLineOrComment(line)) continue;
+                if(ParserFunctions.isEmptyLineOrComment(line)) continue;
                 if(line[0] == '-') {
                     state = ParseState.InputPayloadSection;
                 } else if(line[0] == '<') {
@@ -147,7 +139,7 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
                 }
             },
             ParseState.OutputSection => {
-                if(isEmptyLineOrComment(line)) continue;
+                if(ParserFunctions.isEmptyLineOrComment(line)) continue;
 
                 // Parse extraction_entries
                 try ParserFunctions.parseExtractionEntry(line, result);

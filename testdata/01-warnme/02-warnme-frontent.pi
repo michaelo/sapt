@@ -1,3 +1,2 @@
 > GET https://warnme.no/
-Content-Type: text/html
-< 0
+< 200
