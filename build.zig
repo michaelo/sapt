@@ -13,8 +13,9 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("apitester", "src/main.zig");
+    exe.linkSystemLibrary("c");
     // exe.initExtraArgs(linkage = exe.Linkage.static);
-    exe.linkSystemLibrary("libcurl"); // TODO: verify if it's statically
+    exe.linkSystemLibrary("curl"); // TODO: verify if it's statically
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();

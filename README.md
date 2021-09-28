@@ -29,6 +29,12 @@ Design goals:
 * Support easy use of secrets and common variables/definition
 
 
+Must fix to be usable AKA pri-TODO:
+-------------
+* Parse results and store as variables
+* Support variables - both from env and from previous tasks
+* Output useful errors when it fails (HTTP-code, helpful labels for the most common ones, and the response)
+
 TODO:
 ------------
 * Support .env-files or similar to pass in predefined variables
@@ -38,10 +44,12 @@ TODO:
 * Support paralllel requests? Both for general perceived performance as well as for stress-tests
 * Support response-time as test-prereq? Perhaps in playlist
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
+* Verbose-flag, which also activates curl-verbosity
 
 Later:
 ------
 * Performant, light-weight GUI? Plotting performance for stress tests and such.
+* Test feature flags based on comptime-parsing a feature-file
 
 Thanks / attributions:
 --------

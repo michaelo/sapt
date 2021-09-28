@@ -9,29 +9,6 @@ const HttpMethod = main.HttpMethod;
 const HttpHeader = main.HttpHeader;
 const ExtractionEntry = main.ExtractionEntry;
 
-fn parseHttpMethod(raw: []const u8) errors!HttpMethod {
-    if(std.mem.eql(u8, raw, "GET")) {
-        return HttpMethod.Get;
-    } else if(std.mem.eql(u8, raw, "POST")) {
-        return HttpMethod.Post;
-    } else if(std.mem.eql(u8, raw, "PUT")) {
-        return HttpMethod.Put;
-    } else if(std.mem.eql(u8, raw, "DELETE")) {
-        return HttpMethod.Delete;
-    }
-    return errors.ParseError;
-}
-
-test "parseHttpMethod" {
-    try testing.expect((try parseHttpMethod("GET")) == HttpMethod.Get);
-    try testing.expect((try parseHttpMethod("POST")) == HttpMethod.Post);
-    try testing.expect((try parseHttpMethod("PUT")) == HttpMethod.Put);
-    try testing.expect((try parseHttpMethod("DELETE")) == HttpMethod.Delete);
-    try testing.expectError(errors.ParseError, parseHttpMethod("BLAH"));
-    try testing.expectError(errors.ParseError, parseHttpMethod(""));
-    try testing.expectError(errors.ParseError, parseHttpMethod(" GET"));
-}
-
 fn parseStrToDec(comptime T: type, str: []const u8) T {
     // TODO: Handle negatives?
     var result: T = 0;
@@ -58,44 +35,31 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
         fn parseInputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line[0..], " ");
             _ = lit.next(); // skip >
-            _result.method = try parseHttpMethod(lit.next().?[0..]);
+            _result.method = HttpMethod.create(lit.next().?[0..]) catch return errors.ParseError;
             const url = lit.next().?[0..];
-            _result.url.insertSlice(0, url) catch {
-                return errors.ParseError;
-            };
+            _result.url.insertSlice(0, url) catch return errors.ParseError;
         }
 
         fn parseOutputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, " ");
             _ = lit.next(); // skip <
             _result.expected_http_code = parseStrToDec(u64, lit.next().?[0..]);
-            _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch {
-                // Too big?
-                return errors.ParseError;
-            };
+            _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseError;
         }
 
         fn parseHeaderEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, ":");
-            _result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch {
-                return errors.ParseError;
-            };
+            _result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch return errors.ParseError;
         }
 
         fn parseExtractionEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, "=");
-            _result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch {
-                return errors.ParseError;
-            };
+            _result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch return errors.ParseError;
         }
 
         fn parseInputPayloadLine(line: []const u8, _result: *Entry) !void {
-            _result.payload.appendSlice(line) catch {
-                return errors.ParseError;
-            };
-            _result.payload.append('\n') catch {
-                return errors.ParseError;
-            };
+            _result.payload.appendSlice(line) catch return errors.ParseError;
+            _result.payload.append('\n') catch return errors.ParseError;
         }
     };
 
@@ -357,6 +321,7 @@ const FunctionEntry = struct {
     }
 };
 
+// Split out such functions to separate file
 fn func_woop(value:[]const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     _ = value;
     try out_buf.insertSlice(0, "woop");

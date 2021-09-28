@@ -1,3 +1,16 @@
+// TODO:
+// * Clean up types wrt to BoundedArray-variants used for files, lists of files etc.
+//   * Anything string-related; we can probably assume u8 for any custom functions at least
+// * Revise all errors and error-propagation
+// * Factor out common functions, ensure sets of functions+tests are colocated
+// * Determine design/strategy for handling .env-files
+// * Implement support for env-variables in variable-substitutions
+// * Implement some common, usable functions for expression-substition - e.g. base64-encode
+// * Integrate regexp-parser and implement it for response-verification and variable-extraction
+// * Add test-files to stresstest the parser wrt to parse errors, overflows etc
+// * Establish how to proper handle C-style strings wrt to curl-interop
+// * Implement basic playbook-support?
+// 
 const std = @import("std");
 const fs = std.fs;
 const debug = std.debug.print;
@@ -10,6 +23,9 @@ const cURL = @cImport({
     @cInclude("curl/curl.h");
 });
 
+const GLOBAL_DEBUG = false;
+const CONFIG_FILE_END = ".pi";
+
 pub const errors = error {
     Ok,
     ParseError,
@@ -20,16 +36,38 @@ pub const HttpMethod = enum {
     Get,
     Post,
     Put,
-    Delete
+    Delete,
+    pub fn string(self: HttpMethod) [*]const u8 {
+        return switch(self) {
+            HttpMethod.Get => "GET",
+            HttpMethod.Post => "POST",
+            HttpMethod.Put => "PUT",
+            HttpMethod.Delete => "DELETE"
+        };
+    }
+    pub fn create(raw: []const u8) !HttpMethod {
+        if(std.mem.eql(u8, raw, "GET")) {
+            return HttpMethod.Get;
+        } else if(std.mem.eql(u8, raw, "POST")) {
+            return HttpMethod.Post;
+        } else if(std.mem.eql(u8, raw, "PUT")) {
+            return HttpMethod.Put;
+        } else if(std.mem.eql(u8, raw, "DELETE")) {
+            return HttpMethod.Delete;
+        } else {
+            return error.NoSuchHttpMethod;
+        }
+    }
 };
 
-pub fn httpMethodToStr(method: HttpMethod) [*]const u8 {
-    return switch(method) {
-        HttpMethod.Get => "GET",
-        HttpMethod.Post => "POST",
-        HttpMethod.Put => "PUT",
-        HttpMethod.Delete => "DELETE"
-    };
+test "HttpMethod.create()" {
+    try testing.expect((try HttpMethod.create("GET")) == HttpMethod.Get);
+    try testing.expect((try HttpMethod.create("POST")) == HttpMethod.Post);
+    try testing.expect((try HttpMethod.create("PUT")) == HttpMethod.Put);
+    try testing.expect((try HttpMethod.create("DELETE")) == HttpMethod.Delete);
+    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create("BLAH"));
+    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create(""));
+    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create(" GET"));
 }
 
 pub const HttpHeader = struct {
@@ -68,7 +106,7 @@ pub const ExtractionEntry = struct {
     }
 };
 
-/// Att! This adds a terminating zero at current .slice().len
+/// Att! This adds a terminating zero at current .slice().len TODO: Ensure there's space
 fn boundedArrayAsCstr(comptime capacity: usize, array: *std.BoundedArray(u8, capacity)) [*]u8 {
     if(array.slice().len >= array.capacity()) unreachable;
 
@@ -76,7 +114,6 @@ fn boundedArrayAsCstr(comptime capacity: usize, array: *std.BoundedArray(u8, cap
     return array.slice().ptr;
 }
 
-// TODO: Test if we can use e.g. initBoundedArray(u8, 1024) for default-init to get rid of .create()
 pub const Entry = struct {
     name: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
     method: HttpMethod = undefined,
@@ -89,8 +126,210 @@ pub const Entry = struct {
     result: struct {
         response_http_code: u64 = 0,
         response_match: bool = false,
+        response_first_1mb: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
     } = .{},
 };
+
+const FilePathEntry = std.BoundedArray(u8, 1024);
+
+const AppArguments = struct {
+    //-v
+    verbose: bool = false,
+    //-r
+    recursive: bool = false,
+    //-o=<file>
+    output_file: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    //-f=<file>
+    playbook_file: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    //-s
+    silent: bool = false,
+    // ...
+    files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128),
+};
+
+fn parseArgs(args: [][]const u8) !AppArguments {
+    var result: AppArguments = .{};
+
+    for(args) |arg| {
+        // Handle flags (-f, -s, ...)
+        // Handle arguments with values (-o=...)
+        // Handle rest (file/folder-arguments)
+        // TODO: Revise to have a flat list of explicit checks, but split at = for such entries when comparing
+        if(arg[0] == '-') {
+            switch(arg.len) {
+                0...1 => {
+                    return error.UnknownArgument;
+                },
+                2 => {
+                    switch(arg[1]) {
+                        'v' => { result.verbose = true; },
+                        'r' => { result.recursive = true; },
+                        's' => { result.silent = true; },
+                        else => { return error.UnknownArgument; }
+                    }
+                },
+                else => {
+                    // Parse key=value-types
+                    var eq_pos = std.mem.indexOf(u8, arg, "=") orelse return error.InvalidArgumentFormat;
+
+                    var key = arg[1..eq_pos];
+                    var value = arg[eq_pos+1..];
+
+                    if(std.mem.eql(u8, key, "o")) {
+                        try result.output_file.appendSlice(value);
+                    } else if(std.mem.eql(u8, key, "f")) {
+                        try result.playbook_file.appendSlice(value);
+                    }
+                }
+
+            }
+        } else {
+            // Is (assumed) file/folder
+            // TODO: Shall we here expand folders?
+            //       Alternatively, we can process this separately, add all entries to result.files and finally sort it by name
+            result.files.append(FilePathEntry.fromSlice(arg) catch {
+                return error.TooLongFilename;
+            }) catch {
+                return error.TooManyFiles;
+            };
+        }
+    }
+
+    return result;
+}
+
+
+fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray(FilePathEntry,max_files)) !void {
+    // Fail on files not matching expected name-pattern
+    // Expand folders
+    // Verify that files exists and are readable
+    var cwd = fs.cwd();
+    const readFlags = std.fs.File.OpenFlags {.read=true};
+    {
+        var i:usize = 0;
+        var file: *FilePathEntry = undefined;
+        while(i < files.slice().len) : ( i+=1 ) {
+            file = &files.get(i);
+            // debug("Processing: {s}\n", .{file.slice()}); # TODO: 
+            // Verify that file/folder exists, otherwise fail
+            cwd.access(file.constSlice(), readFlags) catch {
+                debug("Can not access '{s}'\n", .{file.slice()});
+                return error.NoSuchFileOrFolder;
+            };
+
+            // Try to open as dir
+            var dir = cwd.openDir(file.constSlice(), .{.iterate=true}) catch |e| switch(e) {
+                // Not a dir, that's OK
+                error.NotDir => continue,
+                else => return error.UnknownError,
+            };
+            defer dir.close();
+
+            var d_it = dir.iterate();
+            while (try d_it.next()) |a_path| {
+                var stat = try (try dir.openFile(a_path.name, readFlags)).stat();
+                switch(stat.kind) {
+                    .File => {
+                        // TODO: Ignore .env and non-.pi files here?
+                        // TODO: If we shall support .env-files pr folder/suite, then we will perhaps need to keep track of "suites" internally as well?
+
+                        var item = initBoundedArray(u8, 1024);
+                        try item.appendSlice(file.constSlice());
+                        try item.appendSlice("/");
+                        try item.appendSlice(a_path.name);
+                        // Add to files
+                        try files.append(item);
+                    },
+                    .Directory => {
+                        debug("Found subdir: {s}\n", .{a_path.name});
+                        // If recursive: process
+                    },
+                    else => {}
+                }
+            }
+        }
+    }
+
+    // Remove all folders
+    for(files.slice()) |file, i| {
+        _ = cwd.openDir(file.constSlice(), .{.iterate=true}) catch {
+            // Not a dir, leave alone
+            continue;
+        };
+        
+        // Dir, remove
+        _ = files.swapRemove(i);
+    }
+
+    // Sort the remainding entries
+    std.sort.sort(FilePathEntry, files.slice(), {}, struct {
+            fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
+                _ = context;
+                return std.mem.lessThan(u8, a.constSlice(), b.constSlice());
+            }
+        }.func);
+
+}
+
+test "parseArgs" {
+    const default_args: AppArguments = .{};
+
+    {
+        var myargs = [_][]const u8{};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.verbose == default_args.verbose);
+    }
+
+    {
+        var myargs = [_][]const u8{"-v"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.verbose);
+    }
+
+    {
+        var myargs = [_][]const u8{"-r"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.recursive);
+    }
+
+    {
+        var myargs = [_][]const u8{"-s"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.silent);
+    }
+
+    {
+        var myargs = [_][]const u8{"somefile"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.files.slice().len == 1);
+        try testing.expectEqualStrings("somefile", parsed_args.files.get(0).slice());
+    }
+
+    {
+        var myargs = [_][]const u8{"-o=myoutfile"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expectEqualStrings("myoutfile", parsed_args.output_file.slice());
+    }
+
+    {
+        var myargs = [_][]const u8{"-f=myplaybook"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
+    }
+}
+
+test "processInputFileArguments" {
+    var files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128);
+    try files.append(try FilePathEntry.fromSlice("testdata/01-warnme"));
+
+    try processInputFileArguments(128, &files);
+
+    // TODO: Verify all elements are parsed and in proper order
+    // Cases:
+    //   * If file, no need to expand
+    //   * If folder and no -r, expand contents only one leve
+    //   * If folder and -r, expand end recurse
+}
 
 fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
     var buffer = @intToPtr(*std.ArrayList(u8), @ptrToInt(user_data));
@@ -108,16 +347,10 @@ fn processEntry(entry: *Entry) !void {
     //////////////////////////////
     // Init / generic setup
     //////////////////////////////
-
-    // TODO: Not necessary to do global_init pr request/test?
-    if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
-        return error.CURLGlobalInitFailed;
-    defer cURL.curl_global_cleanup();
-
     const handle = cURL.curl_easy_init() orelse return error.CURLHandleInitFailed;
     defer cURL.curl_easy_cleanup(handle);
 
-    // TODO: Shall we get rid off heap?
+    // TODO: Shall we get rid of heap?
     var response_buffer = std.ArrayList(u8).init(allocator);
     defer response_buffer.deinit();
 
@@ -126,7 +359,8 @@ fn processEntry(entry: *Entry) !void {
     ///////////////////////
 
     // Set HTTP method
-    _ = cURL.curl_easy_setopt(handle, cURL.CURLOPT_CUSTOMREQUEST, httpMethodToStr(entry.method));
+    if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_CUSTOMREQUEST, entry.method.string()) != cURL.CURLE_OK)
+        return error.CouldNotSetRequestMethod;
 
     // Set URL
     if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, boundedArrayAsCstr(entry.url.buffer.len, &entry.url)) != cURL.CURLE_OK)
@@ -134,30 +368,31 @@ fn processEntry(entry: *Entry) !void {
 
     // Set Payload (if given)
     if(entry.method == .Post or entry.method == .Put or entry.payload.slice().len > 0) {
-        _ = cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDSIZE, entry.payload.slice().len);
-        _ = cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload));
+        if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDSIZE, entry.payload.slice().len) != cURL.CURLE_OK)
+            return error.CouldNotSetPostDataSize;
+        if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload)) != cURL.CURLE_OK)
+            return error.CouldNotSetPostData;
     }
 
-    // // Debug
-    const on:c_long = 1;
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, on) != cURL.CURLE_OK)
-        return error.CouldNotSetVerbose;
+    // Debug
+    if(GLOBAL_DEBUG) {
+        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
+            return error.CouldNotSetVerbose;
+    }
 
     // Pass headers
     var list: ?*cURL.curl_slist = null;
     defer cURL.curl_slist_free_all(list);
     
-    // TODO: Iterate over entry and add headers
     var header_buf = initBoundedArray(u8, 2048);
     for(entry.headers.slice()) |*header| {
         try header_buf.resize(0);
         try header.render(header_buf.buffer.len, &header_buf);
         list = cURL.curl_slist_append(list, boundedArrayAsCstr(header_buf.buffer.len, &header_buf));
     }
-    // list = cURL.curl_slist_append(list, "Content-Type: text/xml");
-    // list = cURL.curl_slist_append(list, "Accept: text/xml");
     
-    _ = cURL.curl_easy_setopt(handle, cURL.CURLOPT_HTTPHEADER, list);
+    if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_HTTPHEADER, list) != cURL.CURLE_OK)
+        return error.CouldNotSetHeaders;
 
     //////////////////////
     // Execute
@@ -169,7 +404,7 @@ fn processEntry(entry: *Entry) !void {
         return error.CouldNotSetWriteCallback;
 
 
-    // perform
+    // Perform
     if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
         return error.FailedToPerformRequest;
 
@@ -177,17 +412,30 @@ fn processEntry(entry: *Entry) !void {
     // Handle results
     ////////////////////////
     var http_code: u64 = 0;
-    _ = cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code);
+    if(cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code) != cURL.CURLE_OK)
+        return error.CouldNewGetResponseCode;
 
     entry.result.response_http_code = http_code;
 
     // TODO: Replace str-match with proper regexp handling
     entry.result.response_match = std.mem.indexOf(u8, response_buffer.items, entry.expected_response_regex.slice()) != null;
-    // TODO: Log response if given parameter? 
+    try entry.result.response_first_1mb.resize(0);
+    try entry.result.response_first_1mb.appendSlice(response_buffer.items);
 }
 
 fn evaluateEntryResult(entry: *Entry) bool {
     return entry.expected_http_code == 0 or entry.expected_http_code == entry.result.response_http_code;
+}
+
+/// Returns a slice from <from> up to <to> or slice.len
+fn sliceUpTo(comptime T: type, slice: []T, from: usize, to: usize) []T {
+    return slice[from..std.math.min(slice.len, to)];
+}
+
+fn processEntryMain(entry: *Entry, buf: []const u8, name: []const u8) !void {
+    try entry.name.insertSlice(0, name);
+    try parser.parseContents(buf, entry); // TODO: catch and gracefully fail, allowing further cases to be run? 
+    try processEntry(entry); // TODO: catch and gracefully fail, allowing further cases to be run? 
 }
 
 pub fn main() anyerror!void {
@@ -198,26 +446,90 @@ pub fn main() anyerror!void {
 
     var buf = initBoundedArray(u8, 1024*1024);
 
-    for (args[1..]) |arg, i| {
-        // std.debug.print("{}: {s}\n", .{ i, arg });
-        try io.readFile(u8, buf.buffer.len, arg, &buf);
+    if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
+        return error.CURLGlobalInitFailed;
+    defer cURL.curl_global_cleanup();
 
+    var num_processed: u64 = 0;
+    var num_failed: u64 = 0;
+    // TODO: Filter input-set first, to get the proper number of items? Or at least count them up
+
+    debug(
+        \\
+        \\API-tester by Michael Odden
+        \\------------------
+        \\
+        , .{}
+    );
+
+    var parsed_args = try parseArgs(args[1..]);
+    try processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files);
+
+    const time_start = std.time.milliTimestamp();
+    for (parsed_args.files.slice()) |file, i| {
+
+        if(!std.mem.endsWith(u8, file.constSlice(), CONFIG_FILE_END)) continue;
+        
+        num_processed += 1;
+
+        //////////////////
+        // Process
+        //////////////////
         var entry = Entry{};
-        try entry.name.insertSlice(0, arg);
-        try parser.parseContents(buf.slice(), &entry);
-        try processEntry(&entry);
-        debug("{d}/{d} {s:<64}: {s} {s:<64}: {d} ({d})\n", .{i+1, args.len-1, entry.name.slice(), entry.method, entry.url.slice(), evaluateEntryResult(&entry), entry.result.response_http_code});
-        // std.mem.sliceTo(&buf.buffer, 0)
-        // TODO: Arg parse handling
-        // if not a flag, assume it's a folder or file, and parse/process accordingly
+        
+        io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
+            debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
+            num_failed += 1;
+            continue;
+        };
+
+        processEntryMain(&entry, buf.constSlice(), file.constSlice(), ) catch |e| {
+            // TODO: Switch on e and print more helpful error messages. Also: revise and provide better errors in inner functions 
+            debug("ERROR: Got error: {s}\n", .{e});
+            num_failed += 1;
+            continue;
+        };
+
+
+
+        //////////////////
+        // Evaluate results
+        //////////////////
+        var conclusion = evaluateEntryResult(&entry);
+        var result_string = if(conclusion) "OK" else "ERROR";
+        
+        debug("{d}: {s:<64}: {s} (HTTP {d})\n", .{i+1, entry.name.slice(), result_string, entry.result.response_http_code});
+
+        // Expanded output - by default if error
+        if (!conclusion) {
+            num_failed += 1;
+            debug("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
+            if(entry.result.response_http_code != entry.expected_http_code) {
+                debug("Expected HTTP {d}, got {d}\n", .{entry.expected_http_code, entry.result.response_http_code});
+            }
+
+            if(!entry.result.response_match) {
+                debug("Match requirement '{s}' was not successfull\n", .{entry.expected_response_regex});
+            }
+
+            debug("Response (up to 1024B):\n{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024)});
+        }
     }
+    const time_end = std.time.milliTimestamp();
+    debug(
+        \\------------------
+        \\{d}/{d} OK
+        \\------------------
+        \\FINISHED - total time: {d}s
+        \\
+        , .{num_processed-num_failed, num_processed, @intToFloat(f64, time_end-time_start)/1000}
+    );
 }
 
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
     return std.BoundedArray(T, capacity){.buffer=undefined};
 }
-
 
 test "HttpHeader.render" {
     // var mybuf : [128:0]u8 = [_:0]u8{65}**128;
