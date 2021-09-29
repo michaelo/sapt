@@ -34,10 +34,13 @@ Must fix to be usable AKA pri-TODO:
 * Parse results and store as variables
 * Support variables - both from env and from previous tasks
 * Output useful errors when it fails (HTTP-code, helpful labels for the most common ones, and the response)
+* Input-file parser must support CRLF as line end
 
 TODO:
 ------------
 * Support .env-files or similar to pass in predefined variables
+* Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
+* -v also prints variable-extraction results
 * Allow support for OS-environment variables. Control by flag?
 * Support "playlist"-files to defined e.g. order and repetitions?
 * Support both keeping variables between as well as explicitly allowing sandboxing of tests
@@ -45,6 +48,8 @@ TODO:
 * Support response-time as test-prereq? Perhaps in playlist
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
 * Verbose-flag, which also activates curl-verbosity
+* Support list of curl-commands as output?
+* Doucment all limitations: sizes of all fields etc
 
 Later:
 ------

@@ -3,6 +3,7 @@ const debug = std.debug.print;
 const testing = std.testing;
 
 const main = @import("main.zig");
+const KeyValuePair = @import("kvstore.zig").KvStoreEntry;
 const errors = main.errors;
 const Entry = main.Entry;
 const HttpMethod = main.HttpMethod;
@@ -17,7 +18,6 @@ fn parseStrToDec(comptime T: type, str: []const u8) T {
     }
     return result;
 }
-
 
 pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     const ParseState = enum {
@@ -66,6 +66,7 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     // Name is set based on file name - i.e: not handled here
     // Tokenize by line ending. Check for first char being > and < to determine sections, then do section-specific parsing.
     var state = ParseState.Init;
+    // TODO: Check for any \r\n in data, if so split by that, otherwise \n
     var it = std.mem.split(u8, data, "\n");
     while(it.next()) |line| {
         // TODO: Refactor. State-names are confusing.
@@ -167,17 +168,6 @@ test "parseContents extracts to variables" {
     try testing.expectEqualStrings("myvar", entry.extraction_entries.get(0).name.slice());
     try testing.expectEqualStrings("regexwhichextractsvalue", entry.extraction_entries.get(0).expression.slice());
 }
-
-const KeyValuePair = struct {
-    key: std.BoundedArray(u8,1024) = main.initBoundedArray(u8, 1024),
-    value: std.BoundedArray(u8,1024) = main.initBoundedArray(u8, 1024),
-    pub fn create(key: []const u8, value: []const u8) !KeyValuePair {
-        var result = KeyValuePair{};
-        try result.key.insertSlice(0, key);
-        try result.value.insertSlice(0, value);
-        return result;
-    }
-};
 
 /// buffer must be big enough to store the expanded variables. TBD: Manage on heap?
 pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), variables: []KeyValuePair) !void {

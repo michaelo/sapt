@@ -18,6 +18,8 @@ const testing = std.testing;
 
 const parser = @import("parser.zig");
 const io = @import("io.zig");
+const kvstore = @import("kvstore.zig");
+
 
 const cURL = @cImport({
     @cInclude("curl/curl.h");
@@ -71,12 +73,14 @@ test "HttpMethod.create()" {
 }
 
 pub const HttpHeader = struct {
+    const max_value_len = 8*1024;
+
     name: std.BoundedArray(u8,256),
-    value: std.BoundedArray(u8,1024),
+    value: std.BoundedArray(u8,max_value_len),
     pub fn create(name: []const u8, value: []const u8) !HttpHeader {
         return HttpHeader {
             .name = std.BoundedArray(u8,256).fromSlice(std.mem.trim(u8, name, " ")) catch { return errors.ParseError; },
-            .value = std.BoundedArray(u8,1024).fromSlice(std.mem.trim(u8, value, " ")) catch { return errors.ParseError; },
+            .value = std.BoundedArray(u8,max_value_len).fromSlice(std.mem.trim(u8, value, " ")) catch { return errors.ParseError; },
         };
     }
 
@@ -135,6 +139,8 @@ const FilePathEntry = std.BoundedArray(u8, 1024);
 const AppArguments = struct {
     //-v
     verbose: bool = false,
+    //-d
+    show_response_data: bool = false,
     //-r
     recursive: bool = false,
     //-o=<file>
@@ -146,6 +152,29 @@ const AppArguments = struct {
     // ...
     files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128),
 };
+
+fn printHelp() void {
+    debug(
+        \\
+        \\sapt vX.Y.Z - Simple API Tester
+        \\
+        \\Example:
+        \\
+        \\sapt -d myfolderoffiles
+        \\sapt -d myfolderoffiles/specific_test.pi
+        \\
+        \\Arguments
+        \\  -h           Show this help
+        \\  -v           Verbose
+        \\  -r           Recursive
+        \\  -s           Silent
+        \\  -d           Show response data
+        \\  -o=file      Redirect all output to file
+        \\  -p=playbook  Read tests to perform from playbook-file
+        \\
+        , .{}
+    );
+}
 
 fn parseArgs(args: [][]const u8) !AppArguments {
     var result: AppArguments = .{};
@@ -162,9 +191,11 @@ fn parseArgs(args: [][]const u8) !AppArguments {
                 },
                 2 => {
                     switch(arg[1]) {
+                        'h' => { return error.ShowHelp; },
                         'v' => { result.verbose = true; },
                         'r' => { result.recursive = true; },
                         's' => { result.silent = true; },
+                        'd' => { result.show_response_data = true; },
                         else => { return error.UnknownArgument; }
                     }
                 },
@@ -339,7 +370,7 @@ fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_dat
 }
 
 /// Primary worker function performing the request and handling the response
-fn processEntry(entry: *Entry) !void {
+fn processEntry(entry: *Entry, args: AppArguments) !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena_state.deinit();
     var allocator = &arena_state.allocator;
@@ -375,7 +406,7 @@ fn processEntry(entry: *Entry) !void {
     }
 
     // Debug
-    if(GLOBAL_DEBUG) {
+    if(GLOBAL_DEBUG or args.verbose) {
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
             return error.CouldNotSetVerbose;
     }
@@ -384,7 +415,7 @@ fn processEntry(entry: *Entry) !void {
     var list: ?*cURL.curl_slist = null;
     defer cURL.curl_slist_free_all(list);
     
-    var header_buf = initBoundedArray(u8, 2048);
+    var header_buf = initBoundedArray(u8, HttpHeader.max_value_len);
     for(entry.headers.slice()) |*header| {
         try header_buf.resize(0);
         try header.render(header_buf.buffer.len, &header_buf);
@@ -420,7 +451,7 @@ fn processEntry(entry: *Entry) !void {
     // TODO: Replace str-match with proper regexp handling
     entry.result.response_match = std.mem.indexOf(u8, response_buffer.items, entry.expected_response_regex.slice()) != null;
     try entry.result.response_first_1mb.resize(0);
-    try entry.result.response_first_1mb.appendSlice(response_buffer.items);
+    try entry.result.response_first_1mb.appendSlice(sliceUpTo(u8, response_buffer.items, 0, entry.result.response_first_1mb.capacity()));
 }
 
 fn evaluateEntryResult(entry: *Entry) bool {
@@ -432,17 +463,33 @@ fn sliceUpTo(comptime T: type, slice: []T, from: usize, to: usize) []T {
     return slice[from..std.math.min(slice.len, to)];
 }
 
-fn processEntryMain(entry: *Entry, buf: []const u8, name: []const u8) !void {
-    try entry.name.insertSlice(0, name);
+fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, name: []const u8) !void {
+    _ = name;
+    // try entry.name.insertSlice(0, name);
     try parser.parseContents(buf, entry); // TODO: catch and gracefully fail, allowing further cases to be run? 
-    try processEntry(entry); // TODO: catch and gracefully fail, allowing further cases to be run? 
+    try processEntry(entry, args); // TODO: catch and gracefully fail, allowing further cases to be run? 
+}
+
+fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
+        // Extract to variables
+    for(entry.extraction_entries.constSlice()) |v| {
+        if(parser.expressionExtractor(entry.result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
+            // Got match
+            try store.add(v.name.constSlice(), expression_result.result);
+        } else {
+            // TODO: Should be error?
+            debug("WARNING: Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
+        }
+    }
+
 }
 
 pub fn main() anyerror!void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = &general_purpose_allocator.allocator;
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const aa = &arena.allocator;
+    const args = try std.process.argsAlloc(aa);
+    defer std.process.argsFree(aa, args);
 
     var buf = initBoundedArray(u8, 1024*1024);
 
@@ -462,9 +509,14 @@ pub fn main() anyerror!void {
         , .{}
     );
 
-    var parsed_args = try parseArgs(args[1..]);
+    var parsed_args = parseArgs(args[1..]) catch {
+        printHelp();
+        return error.MissingArgs;
+    };
+
     try processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files);
 
+    var extracted_vars: kvstore.KvStore = .{};
     const time_start = std.time.milliTimestamp();
     for (parsed_args.files.slice()) |file, i| {
 
@@ -476,14 +528,20 @@ pub fn main() anyerror!void {
         // Process
         //////////////////
         var entry = Entry{};
-        
+
+        debug("{d}: {s:<64}:", .{i+1, file.constSlice()});
+
         io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
             debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
             num_failed += 1;
             continue;
         };
 
-        processEntryMain(&entry, buf.constSlice(), file.constSlice(), ) catch |e| {
+        // Expand all variables
+        try parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars.store.slice());
+
+        // Process
+        processEntryMain(&entry, parsed_args, buf.constSlice(), file.constSlice()) catch |e| {
             // TODO: Switch on e and print more helpful error messages. Also: revise and provide better errors in inner functions 
             debug("ERROR: Got error: {s}\n", .{e});
             num_failed += 1;
@@ -491,17 +549,26 @@ pub fn main() anyerror!void {
         };
 
 
-
         //////////////////
         // Evaluate results
         //////////////////
+
         var conclusion = evaluateEntryResult(&entry);
         var result_string = if(conclusion) "OK" else "ERROR";
+        debug("{s} (HTTP {d})\n", .{result_string, entry.result.response_http_code});
         
-        debug("{d}: {s:<64}: {s} (HTTP {d})\n", .{i+1, entry.name.slice(), result_string, entry.result.response_http_code});
-
         // Expanded output - by default if error
-        if (!conclusion) {
+        if (conclusion) {
+            // No need to extract if not successful
+            try extractExtractionEntries(entry, &extracted_vars);
+
+            // Print all stored variables
+            if(parsed_args.verbose) for(extracted_vars.store.slice()) |v| {
+                debug("kv: {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
+            };
+
+        //   debug("{s} (HTTP {d})\n", .{result_string, entry.result.response_http_code});
+        } else {
             num_failed += 1;
             debug("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
             if(entry.result.response_http_code != entry.expected_http_code) {
@@ -509,10 +576,14 @@ pub fn main() anyerror!void {
             }
 
             if(!entry.result.response_match) {
-                debug("Match requirement '{s}' was not successfull\n", .{entry.expected_response_regex});
+                debug("Match requirement '{s}' was not successful\n", .{entry.expected_response_regex});
             }
+        }
 
-            debug("Response (up to 1024B):\n{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024)});
+
+
+        if(!conclusion or parsed_args.verbose or parsed_args.show_response_data) {
+            debug("Response (up to 1024KB):\n{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024*1024)});
         }
     }
     const time_end = std.time.milliTimestamp();
