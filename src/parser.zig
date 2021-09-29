@@ -500,3 +500,47 @@ test "parseContents shall extract payload" {
     // TODO: Should we trim trailing newline of payload?
     try testing.expectEqualStrings("Payload goes here\nand here", entry.payload.slice());
 }
+
+pub const ExpressionMatch = struct {
+    result: []const u8 = undefined,
+};
+
+/// Will scan the buf for pattern. Pattern can contain () to indicate narrow group to extract.
+/// Currently no support for character classes and other patterns.
+pub fn expressionExtractor(buf: []const u8, pattern: []const u8) ?ExpressionMatch {
+    _ = buf;
+    _ = pattern;
+    if(std.mem.indexOf(u8, pattern, "()")) |pos| {
+        var start_slice = pattern[0..pos];
+        var end_slice = pattern[pos+2..];
+        // debug("start_slice: {s}, end_slice: {s}\n", .{start_slice, end_slice});
+
+        var start_pos = std.mem.indexOf(u8, buf, start_slice) orelse return null;
+        var end_pos = std.mem.indexOfPos(u8, buf, start_pos+start_slice.len, end_slice) orelse return null;
+
+        if(end_pos == 0) end_pos = buf.len;
+    
+        // debug("value: {d} ({d}) - {d} ({d})\n", .{start_pos, start_slice.len, end_pos, end_slice.len});
+
+        return ExpressionMatch{
+            .result = buf[start_pos+start_slice.len..end_pos],
+        };
+
+    } else if(std.mem.indexOf(u8, buf, pattern)) |_| {
+        return ExpressionMatch{
+            .result = buf[0..],
+        };
+    }
+
+    return null;
+}
+
+test "expressionExtractor" {
+    try testing.expect(expressionExtractor("", "not there") == null);
+    // Hvis match uten (): lagre hele payload?
+    try testing.expectEqualStrings("match", expressionExtractor("match", "()").?.result);
+    try testing.expectEqualStrings("match", expressionExtractor("match", "atc").?.result);
+    try testing.expectEqualStrings("atc", expressionExtractor("match", "m()h").?.result);
+    try testing.expectEqualStrings("123123", expressionExtractor("idtoken=123123", "token=()").?.result);
+    try testing.expectEqualStrings("123123", expressionExtractor("123123=idtoken", "()=id").?.result);
+}
