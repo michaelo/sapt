@@ -1,0 +1,3 @@
+# git: https://github.com/alexnask/ctregex.zig#master > libs/ctregex
+# git: https://github.com/tiehuis/zig-regex#master > libs/zig-regex
+git: https://github.com/kokke/tiny-regex-c > libs/tiny-regex-c

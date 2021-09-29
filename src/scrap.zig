@@ -1,3 +1,17 @@
+const ctregex = @import("libs/ctregex/ctregex.zig");
+// const Regex = @import("libs/zig-regex/src/regex.zig").Regex;
+const std = @import("std");
+// const debug = std.debug;
+const testing = std.testing;
+
+
+test "ctregex" {
+    // var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    // const gpa = &general_purpose_allocator.allocator;
+
+    // var re = try Regex.compile(gpa, "\\d+");
+    // try testing.expect((try re.match("123hej")) == true);
+}
 
 // test "string exploration" {
 //     const str1 = "test";
