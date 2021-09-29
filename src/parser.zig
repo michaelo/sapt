@@ -94,6 +94,11 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
             },
             ParseState.InputPayloadSection => { // Optional section
                 if(line[0] == '<') {
+                    // Check if payload has been added, and trim trailing newline
+                    if(result.payload.slice().len>0) {
+                        _ = result.payload.pop();
+                    }
+                    
                     // Parse initial expected output section
                     state = ParseState.OutputSection;
                     try ParserFunctions.parseOutputSectionHeader(line, result);
@@ -493,5 +498,5 @@ test "parseContents shall extract payload" {
 
     try parseContents(data, &entry);
     // TODO: Should we trim trailing newline of payload?
-    try testing.expectEqualStrings("Payload goes here\nand here\n", entry.payload.slice());
+    try testing.expectEqualStrings("Payload goes here\nand here", entry.payload.slice());
 }
