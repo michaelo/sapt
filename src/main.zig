@@ -143,6 +143,8 @@ const AppArguments = struct {
     show_response_data: bool = false,
     //-r
     recursive: bool = false,
+    //-i=<file>
+    input_vars_file: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
     //-o=<file>
     output_file: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
     //-f=<file>
@@ -169,6 +171,7 @@ fn printHelp() void {
         \\  -r           Recursive
         \\  -s           Silent
         \\  -d           Show response data
+        \\  -i=file      Input-variables file
         \\  -o=file      Redirect all output to file
         \\  -p=playbook  Read tests to perform from playbook-file
         \\
@@ -210,6 +213,8 @@ fn parseArgs(args: [][]const u8) !AppArguments {
                         try result.output_file.appendSlice(value);
                     } else if(std.mem.eql(u8, key, "f")) {
                         try result.playbook_file.appendSlice(value);
+                    }else if(std.mem.eql(u8, key, "i")) {
+                        try result.input_vars_file.appendSlice(value);
                     }
                 }
 
@@ -516,9 +521,17 @@ pub fn main() anyerror!void {
 
     try processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files);
 
+    var input_vars = kvstore.KvStore{};
+    if(parsed_args.input_vars_file.constSlice().len > 0) {
+        debug("Reading input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
+        // TODO: expand variables within envfiles? This to e.g. allow env-files to refer to OS ENV. Any proper use case?
+        input_vars = try envFileToKvStore(parsed_args.input_vars_file.constSlice());
+    }
+
+
     var extracted_vars: kvstore.KvStore = .{};
     const time_start = std.time.milliTimestamp();
-    for (parsed_args.files.slice()) |file, i| {
+    for (parsed_args.files.slice()) |file| {
 
         if(!std.mem.endsWith(u8, file.constSlice(), CONFIG_FILE_END)) continue;
         
@@ -529,7 +542,7 @@ pub fn main() anyerror!void {
         //////////////////
         var entry = Entry{};
 
-        debug("{d}: {s:<64}:", .{i+1, file.constSlice()});
+        debug("{d}: {s:<64}:", .{num_processed, file.constSlice()});
 
         io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
             debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
@@ -538,7 +551,9 @@ pub fn main() anyerror!void {
         };
 
         // Expand all variables
-        try parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars.store.slice());
+        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
+        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
+
 
         // Process
         processEntryMain(&entry, parsed_args, buf.constSlice(), file.constSlice()) catch |e| {
@@ -564,7 +579,10 @@ pub fn main() anyerror!void {
 
             // Print all stored variables
             if(parsed_args.verbose) for(extracted_vars.store.slice()) |v| {
-                debug("kv: {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
+                debug("Values extracted from response:\n", .{});
+                debug("-"**80 ++ "\n", .{});
+                debug("* {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
+                debug("-"**80 ++ "\n", .{});
             };
 
         //   debug("{s} (HTTP {d})\n", .{result_string, entry.result.response_http_code});
@@ -597,6 +615,23 @@ pub fn main() anyerror!void {
     );
 }
 
+pub fn envFileToKvStore(path: []const u8) !kvstore.KvStore {
+    var tmpbuf: [1024*1024]u8 = undefined;
+    var buf_len = io.readFileRaw(path, &tmpbuf) catch {
+        debug("ERROR: Could not read file: {s}\n", .{path});
+        return error.CouldNotReadFile;
+    };
+
+    return try kvstore.KvStore.fromBuffer(tmpbuf[0..buf_len]);
+}
+
+test "envFileToKvStore" {
+    var store = try envFileToKvStore("testdata/env");
+    try testing.expect(store.count() == 2);
+    try testing.expectEqualStrings("value", store.get("key").?);
+    try testing.expectEqualStrings("dabba", store.get("abba").?);
+}
+
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
     return std.BoundedArray(T, capacity){.buffer=undefined};
@@ -612,5 +647,3 @@ test "HttpHeader.render" {
     try header.render(mybuf.buffer.len, &mybuf);
     try testing.expectEqualStrings("Accept: application/xml", mybuf.slice());
 }
-
-
