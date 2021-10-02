@@ -1,0 +1,3 @@
+# Rename this file to .gitignore and put in root-folder of your repository of test-files
+# Ignore files with variables as they may contain secrets
+**/.env
