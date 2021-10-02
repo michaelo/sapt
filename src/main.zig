@@ -20,6 +20,9 @@ const parser = @import("parser.zig");
 const io = @import("io.zig");
 const kvstore = @import("kvstore.zig");
 
+const APP_NAME = "sapt";
+const APP_VERSION = "0.1.0";
+
 
 const cURL = @cImport({
     @cInclude("curl/curl.h");
@@ -158,24 +161,26 @@ const AppArguments = struct {
 fn printHelp() void {
     debug(
         \\
-        \\sapt vX.Y.Z - Simple API Tester
+        \\{0s} v{1s} - Simple API Tester
         \\
-        \\Example:
+        \\Usage: {0s} [arguments] file1 [file2 ... fileN]
         \\
-        \\sapt -d myfolderoffiles
-        \\sapt -d myfolderoffiles/specific_test.pi
+        \\{0s} gettoken.pi testsuite1/*
+        \\{0s} -p=myplaybook.book
+        \\{0s} -p=myplaybook.book -s -o=output.log
+        \\{0s} -i=testsuite01/.env testsuite01
         \\
         \\Arguments
         \\  -h           Show this help
         \\  -v           Verbose
-        \\  -r           Recursive
-        \\  -s           Silent
+        \\  -r           Recursive -- not implemented yet
+        \\  -s           Silent -- not implemented yet
         \\  -d           Show response data
         \\  -i=file      Input-variables file
         \\  -o=file      Redirect all output to file
-        \\  -p=playbook  Read tests to perform from playbook-file
+        \\  -p=playbook  Read tests to perform from playbook-file  -- not implemented yet
         \\
-        , .{}
+        , .{APP_NAME, APP_VERSION}
     );
 }
 
