@@ -43,3 +43,10 @@ Sources of variables:
   * Will need to handle "collisions" where same variable is set from multiple sources. Suggested order, from least to most significant: OS env, .env, parsed. Furthermore, definitions from subfolder .envs override parent .envs.
 * Parsed from results of earlier tests
 
+### Playbooks
+
+* The tool shall support composing a file to serve as a playbook of tests to be executed along with certain properties.
+  * An ordered list of tests to be executed
+  * An optional number of times each test shall be repeated, default: 1
+  * An optional set of variables
+* Output: ...
