@@ -52,6 +52,9 @@ TODO:
 * Support list of curl-commands as output?
 * Doucment all limitations: sizes of all fields etc
 * TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
+* Support handling encrypted variables?
+* Support/use coloring for improved output
+* ...
 
 Later:
 ------

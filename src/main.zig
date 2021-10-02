@@ -13,7 +13,15 @@
 // 
 const std = @import("std");
 const fs = std.fs;
+
+// Outputters
+// const info = std.log.info;
+// const warn = std.log.warn;
+// const emerg = std.log.emerg;
 const debug = std.debug.print;
+
+pub const log_level: std.log.Level = .debug;
+
 const testing = std.testing;
 
 const parser = @import("parser.zig");
@@ -30,12 +38,18 @@ const cURL = @cImport({
 
 const GLOBAL_DEBUG = false;
 const CONFIG_FILE_END = ".pi";
+const MAX_PATH_LEN = 1024;
 
 pub const errors = error {
     Ok,
     ParseError,
     TestsFailed
 };
+
+pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
+    debug(format, args);
+    std.process.exit(1); // TODO: Introduce several error codes?
+}
 
 pub const HttpMethod = enum {
     Get,
@@ -88,17 +102,9 @@ pub const HttpHeader = struct {
     }
 
     pub fn render(self: *HttpHeader, comptime capacity: usize, out: *std.BoundedArray(u8, capacity)) !void {
-        // TODO: Return slice to out for direct use?
-        // if(out.buffer.len < self.name.slice().len + 2 + self.value.slice().len+1) unreachable;
-
         try out.appendSlice(self.name.slice());
         try out.appendSlice(": ");
         try out.appendSlice(self.value.slice());
-
-        // std.mem.copy(u8, out[0..], self.name.slice());
-        // std.mem.copy(u8, out[self.name.slice().len..], ": ");
-        // std.mem.copy(u8, out[self.name.slice().len+2..], self.value.slice());
-        // out[self.name.slice().len + 2 + self.value.slice().len] = 0;
     }
 };
 
@@ -137,7 +143,7 @@ pub const Entry = struct {
     } = .{},
 };
 
-const FilePathEntry = std.BoundedArray(u8, 1024);
+const FilePathEntry = std.BoundedArray(u8, MAX_PATH_LEN);
 
 const AppArguments = struct {
     //-v
@@ -147,11 +153,11 @@ const AppArguments = struct {
     //-r
     recursive: bool = false,
     //-i=<file>
-    input_vars_file: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    input_vars_file: std.BoundedArray(u8,MAX_PATH_LEN) = initBoundedArray(u8, MAX_PATH_LEN),
     //-o=<file>
-    output_file: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    output_file: std.BoundedArray(u8,MAX_PATH_LEN) = initBoundedArray(u8, MAX_PATH_LEN),
     //-f=<file>
-    playbook_file: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    playbook_file: std.BoundedArray(u8,MAX_PATH_LEN) = initBoundedArray(u8, MAX_PATH_LEN),
     //-s
     silent: bool = false,
     // ...
@@ -274,7 +280,7 @@ fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray
                         // TODO: Ignore .env and non-.pi files here?
                         // TODO: If we shall support .env-files pr folder/suite, then we will perhaps need to keep track of "suites" internally as well?
 
-                        var item = initBoundedArray(u8, 1024);
+                        var item = initBoundedArray(u8, MAX_PATH_LEN);
                         try item.appendSlice(file.constSlice());
                         try item.appendSlice("/");
                         try item.appendSlice(a_path.name);
@@ -459,13 +465,20 @@ fn processEntry(entry: *Entry, args: AppArguments) !void {
     entry.result.response_http_code = http_code;
 
     // TODO: Replace str-match with proper regexp handling
-    entry.result.response_match = std.mem.indexOf(u8, response_buffer.items, entry.expected_response_regex.slice()) != null;
     try entry.result.response_first_1mb.resize(0);
     try entry.result.response_first_1mb.appendSlice(sliceUpTo(u8, response_buffer.items, 0, entry.result.response_first_1mb.capacity()));
 }
 
 fn evaluateEntryResult(entry: *Entry) bool {
-    return entry.expected_http_code == 0 or entry.expected_http_code == entry.result.response_http_code;
+    if(entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, entry.result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
+        entry.result.response_match = false;
+        return false;
+    }
+    entry.result.response_match = true;
+
+    if(entry.expected_http_code != 0 and entry.expected_http_code != entry.result.response_http_code) return false;
+
+    return true;
 }
 
 /// Returns a slice from <from> up to <to> or slice.len
@@ -488,19 +501,27 @@ fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
             try store.add(v.name.constSlice(), expression_result.result);
         } else {
             // TODO: Should be error?
-            debug("WARNING: Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
+            debug("Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
         }
     }
 
 }
 
-pub fn main() anyerror!void {
+pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
     defer arena.deinit();
     const aa = &arena.allocator;
+
     const args = try std.process.argsAlloc(aa);
     defer std.process.argsFree(aa, args);
 
+    mainInner(args[1..]) catch |e| {
+        fatal("Exited due to failure ({s})\n", .{e});
+    };
+}
+
+pub fn mainInner(args: [][]u8) anyerror!void {
     var buf = initBoundedArray(u8, 1024*1024);
 
     if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
@@ -511,24 +532,18 @@ pub fn main() anyerror!void {
     var num_failed: u64 = 0;
     // TODO: Filter input-set first, to get the proper number of items? Or at least count them up
 
-    debug(
-        \\
-        \\API-tester by Michael Odden
-        \\------------------
-        \\
-        , .{}
-    );
-
-    var parsed_args = parseArgs(args[1..]) catch {
-        printHelp();
-        return error.MissingArgs;
+    var parsed_args = parseArgs(args) catch |e| switch(e) {
+        error.ShowHelp => { printHelp(); return; },
+        else => { debug("Invalid arguments.\n" ,.{}); printHelp(); fatal("Exiting.", .{}); }
     };
 
-    try processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files);
+    processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
+        fatal("Could not process input file arguments: {s}\n", .{e});
+    };
 
     var input_vars = kvstore.KvStore{};
     if(parsed_args.input_vars_file.constSlice().len > 0) {
-        debug("Reading input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
+        if(parsed_args.verbose) debug("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
         // TODO: expand variables within envfiles? This to e.g. allow env-files to refer to OS ENV. Any proper use case?
         input_vars = try envFileToKvStore(parsed_args.input_vars_file.constSlice());
     }
@@ -583,14 +598,14 @@ pub fn main() anyerror!void {
             try extractExtractionEntries(entry, &extracted_vars);
 
             // Print all stored variables
-            if(parsed_args.verbose) for(extracted_vars.store.slice()) |v| {
+            if(parsed_args.verbose and extracted_vars.store.slice().len > 0) {
                 debug("Values extracted from response:\n", .{});
                 debug("-"**80 ++ "\n", .{});
-                debug("* {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
+                for(extracted_vars.store.slice()) |v| {
+                    debug("* {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
+                }
                 debug("-"**80 ++ "\n", .{});
-            };
-
-        //   debug("{s} (HTTP {d})\n", .{result_string, entry.result.response_http_code});
+            }
         } else {
             num_failed += 1;
             debug("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
@@ -599,11 +614,9 @@ pub fn main() anyerror!void {
             }
 
             if(!entry.result.response_match) {
-                debug("Match requirement '{s}' was not successful\n", .{entry.expected_response_regex});
+                debug("Match requirement '{s}' was not successful\n", .{entry.expected_response_regex.constSlice()});
             }
         }
-
-
 
         if(!conclusion or parsed_args.verbose or parsed_args.show_response_data) {
             debug("Response (up to 1024KB):\n{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024*1024)});
@@ -623,7 +636,6 @@ pub fn main() anyerror!void {
 pub fn envFileToKvStore(path: []const u8) !kvstore.KvStore {
     var tmpbuf: [1024*1024]u8 = undefined;
     var buf_len = io.readFileRaw(path, &tmpbuf) catch {
-        debug("ERROR: Could not read file: {s}\n", .{path});
         return error.CouldNotReadFile;
     };
 
@@ -643,12 +655,9 @@ pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedA
 }
 
 test "HttpHeader.render" {
-    // var mybuf : [128:0]u8 = [_:0]u8{65}**128;
     var mybuf = initBoundedArray(u8, 2048);
-
     var header = try HttpHeader.create("Accept", "application/xml");
     
-    // debug("line: '{s}'\n", .{header.cstr(&mybuf)});
     try header.render(mybuf.buffer.len, &mybuf);
     try testing.expectEqualStrings("Accept: application/xml", mybuf.slice());
 }
