@@ -164,13 +164,20 @@ const AppArguments = struct {
     files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128),
 };
 
-fn printHelp() void {
+fn printHelp(full: bool) void {
+
     debug(
         \\
         \\{0s} v{1s} - Simple API Tester
         \\
         \\Usage: {0s} [arguments] file1 [file2 ... fileN]
         \\
+        , .{APP_NAME, APP_VERSION}
+    );
+
+    if(!full) return;
+
+    debug(
         \\{0s} gettoken.pi testsuite1/*
         \\{0s} -p=myplaybook.book
         \\{0s} -p=myplaybook.book -s -o=output.log
@@ -186,7 +193,7 @@ fn printHelp() void {
         \\  -o=file      Redirect all output to file
         \\  -p=playbook  Read tests to perform from playbook-file  -- not implemented yet
         \\
-        , .{APP_NAME, APP_VERSION}
+        , .{APP_NAME}
     );
 }
 
@@ -516,6 +523,11 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(aa);
     defer std.process.argsFree(aa, args);
 
+    if(args.len == 1) {
+        printHelp(false);
+        std.process.exit(0);
+    }
+
     mainInner(args[1..]) catch |e| {
         fatal("Exited due to failure ({s})\n", .{e});
     };
@@ -533,8 +545,8 @@ pub fn mainInner(args: [][]u8) anyerror!void {
     // TODO: Filter input-set first, to get the proper number of items? Or at least count them up
 
     var parsed_args = parseArgs(args) catch |e| switch(e) {
-        error.ShowHelp => { printHelp(); return; },
-        else => { debug("Invalid arguments.\n" ,.{}); printHelp(); fatal("Exiting.", .{}); }
+        error.ShowHelp => { printHelp(true); return; },
+        else => { debug("Invalid arguments.\n" ,.{}); printHelp(true); fatal("Exiting.", .{}); }
     };
 
     processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
