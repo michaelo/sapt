@@ -1,6 +1,7 @@
 const std = @import("std");
-const debug = std.debug.print;
 const testing = std.testing;
+
+const io = @import("io.zig");
 
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T, capacity) {
@@ -79,8 +80,7 @@ pub const KvStore = struct {
 
     pub fn fromBuffer(buf: []const u8) !KvStore {
         var store = KvStore{};
-        // TODO: support CRLF
-        var line_it = std.mem.split(u8, buf, "\n");
+        var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
         while (line_it.next()) |line| {
             if (line.len == 0) continue;
             if (std.mem.indexOf(u8, line, "=")) |eqpos| {
@@ -93,8 +93,7 @@ pub const KvStore = struct {
     }
 
     pub fn addFromBuffer(self: *KvStore, buf: []const u8) !void {
-        // TODO: support CRLF
-        var line_it = std.mem.split(u8, buf, "\n");
+        var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
         while (line_it.next()) |line| {
             if (line.len == 0) continue;
             if (std.mem.indexOf(u8, line, "=")) |eqpos| {
@@ -140,7 +139,6 @@ test "KvStore shall stay ordered" {
     try testing.expectError(error.KeyAlreadyUsed, store.getIndexFor("bkey"));
 
     // insert early entry. Add shall fail, and checking for the key shall also fail
-    // try testing.expectError(error.KeyAlreadyUser, store.add("akey", "value"));
     try testing.expect((try store.getIndexFor("akey")).? == 0);
     try store.add("akey", "value");
     try testing.expectError(error.KeyAlreadyUsed, store.add("akey", "value"));

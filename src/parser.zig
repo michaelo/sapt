@@ -4,6 +4,7 @@ const testing = std.testing;
 
 const main = @import("main.zig");
 const kvstore = @import("kvstore.zig");
+const io = @import("io.zig");
 const errors = main.errors;
 const Entry = main.Entry;
 const HttpMethod = main.HttpMethod;
@@ -67,7 +68,7 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     // Tokenize by line ending. Check for first char being > and < to determine sections, then do section-specific parsing.
     var state = ParseState.Init;
     // TODO: Check for any \r\n in data, if so split by that, otherwise \n
-    var it = std.mem.split(u8, data, "\n");
+    var it = std.mem.split(u8, data, io.getLineEnding(data));
     while (it.next()) |line| {
         // TODO: Refactor. State-names are confusing.
         switch (state) {
@@ -277,7 +278,6 @@ test "addUnsignedSigned" {
     try testing.expectError(error.Overflow, addUnsignedSigned(u64, i64, std.math.maxInt(u64), 1));
 }
 
-// TODO: Function should accept out-buffer as well
 const FunctionEntryFuncPtr = fn ([]const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
 
 const FunctionEntry = struct {
@@ -325,6 +325,7 @@ const global_functions = [_]FunctionEntry{
 };
 
 fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
+    // TODO: Inefficient
     for (global_functions) |*entry| {
         if (std.mem.eql(u8, entry.name, name)) {
             return entry.function;

@@ -21,6 +21,11 @@ pub fn readFile(comptime T: type, comptime S: usize, path: []const u8, target_bu
     _ = try file.readAll(target_buf.slice()[0..]);
 }
 
+pub fn getLineEnding(buf: []const u8) []const u8 {
+    if(std.mem.indexOf(u8, buf, "\r\n") != null) return "\r\n";
+    return "\n";
+}
+
 test "readFile" {
     var buf = main.initBoundedArray(u8, 1024 * 1024);
     try testing.expect(buf.slice().len == 0);
