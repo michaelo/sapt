@@ -54,7 +54,7 @@ TODO:
 * TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
 * Support handling encrypted variables?
 * Support/use coloring for improved output
-* ...
+* Support HTTP follow?
 
 Later:
 ------
