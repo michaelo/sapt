@@ -112,6 +112,26 @@ Output:
     2: myproj/api_get.pi | avg: 0.15s [0.1-0.5s]  |     95/100 ERROR
 
 
+Build:
+------------
+The tool is written in [zig](https://ziglang.org/), and depends on [libcurl](https://curl.se/libcurl/).
+
+Prerequisites:
+* [zig is installed](https://ziglang.org/download/) and available in path
+* [libcurl is installed](https://curl.se/download.html) and library and headers are available in either path or through pkg-config.
+
+    git clone https://github.com/michaelo/sapt
+    cd sapt
+
+Development build/run:
+
+    zig build run
+
+Install:
+
+    zig build install --prefix-exe-dir /usr/bin
+
+
 Design goals:
 ------------
 * Only you should own and control your data - e.g. any version control and data sharing is up to you.
@@ -127,6 +147,7 @@ Must fix to be usable AKA pri-TODO:
 
 TODO:
 ------------
+* Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS
 * Support .env-files or similar to pass in predefined variables: currently only support explicitly passing it through -i=path
 * Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
 * Allow support for OS-environment variables. Control by flag?
