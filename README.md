@@ -8,7 +8,6 @@ Usage: Simple
     testsuite/01-mytest.pi contents:
     
     > GET https://api.warnme.no/api/status
-    Content-Type: application/json
     < 200
 
     % sapt testsuite/01-mytest.pi
@@ -17,6 +16,67 @@ Usage: Simple
     % sapt -h
     -- shows help
 
+
+* sapt can take multiple arguments, both files and folders. The entire input-set will be sorted alphanumerically, thus you can dictate the order of execution by making sure the names of the scripts reflects the order:
+
+* suite/01-auth.pi
+* suite/03-post-entry.pi
+* suite/03-get-posted-entry.pi
+* suite/04-delete-posted-entry.pi
+
+Usage: complex:
+----------------
+
+Assuming you first have to get an authorization code from an auth-endpoint, which you will need in other tests.
+
+Assuming the following files:
+
+    * myservice/.env
+    * myservice/01-auth.pi
+    * myservice/02-get-data.pi
+
+### Set up variables: myservice/.env
+
+    OIDC_USERNAME=myoidcclient
+    OIDC_PASSWORD=sup3rs3cr3t
+    USERNAME=someuser
+    PASSWORD=supersecret42
+
+### Get the auth-token: myservice/01-auth.pi
+
+    > POST https://my.service/api/auth
+    Authorization: Basic {{base64enc({{OIDC_USERNAME}}:{{OIDC_PASSWORD}})}}
+    Content-Type: application/x-www-form-urlencoded
+    -
+    grant_type=password&username={{USERNAME}}&password={{PASSWORD}}&scope=openid%20profile
+    < 200
+    id_token="id_token":"()"
+
+Assuming that the auth-endpoint will return something like this:
+
+    {"access_token": "...", "id_token"="", "...", ...}
+
+... the test will then set the id_token-variable, allowing it to be referred in subsequent tests.
+
+### Get data from service using data from previous test: myservice/02-get-data.pi
+    
+    > GET https://my.app/api/entry
+    Cookie: SecurityToken={{id_token}}
+    < 200
+
+
+### Run the tessuite
+
+    sapt -i=myservice/.env myservice
+
+Output:
+
+    1: myservice/01-auth.pi                                 :OK (HTTP 200)
+    2: myservice/02-get-data.pi                             :OK (HTTP 200)
+    ------------------
+    2/2 OK
+    ------------------
+    FINISHED - total time: 0.189s
 
 Usage: playbook (draft, not implemented)
 -----------
@@ -132,6 +192,7 @@ Output section:
     < 0
 
 Set of variable extraction expressions, optional:
+
     # Key=expression
     #   expression format: <text-pre><group-indicator><text-post>
     # Expression shall consists of a string representing the output, with '()' indicating the part to extract
