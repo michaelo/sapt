@@ -4,21 +4,30 @@ sapt - A simple tool for API testing
     You: Why should I use this tool?
     
     Me: Good question, I'm glad you asked!
-        There's a good chance you shouldn't. There are several well established alternatives you should consider instead. E.g. Postman, httpier, or perhaps cURL.
+        There's a good chance you shouldn't. There are several well established
+        alternatives you should consider instead. E.g. Postman, httpier, or 
+        perhaps cURL.
     
     You: ... ok? ...
     
-    Me: But, if you should find those tools either to heavy to run, too unpredictable with regards to where your data may be stored, or simply just too slow or complex to run or compose tests for, sapt might be of interest.
+    Me: But, if you should find those tools either to heavy to run, too
+    unpredictable with regards to where your data may be stored, or simply
+    just too slow or complex to run or compose tests for, sapt might be of
+    interest.
     
     You: Go on...
 
-    Me: sapt is a lightweight tool, both with regards to runtime requirements, as well as its' feature set. It also provides you with full control of your own data. See "Design goals" further down, or "docs/COMPARISONS.md" to see what sapt focuses on. 
+    Me: sapt is a lightweight tool, both with regards to runtime requirements,
+    as well as its' feature set. It also provides you with full control of your
+    own data. See "Design goals" further down, or "docs/COMPARISONS.md" to see
+    what sapt focuses on. 
 
     You: I've tried it and: (pick a choice)
         a) I loved it
             Me: Awesome!
         b) I hated it
-            Me: No worries. I made it first and foremost to make my own (work-)life easier - and it already has. Take care!
+            Me: No worries. I made it first and foremost to make my own 
+                work-)life easier - and it already has. Take care!
 
 
 Usage: Basic
