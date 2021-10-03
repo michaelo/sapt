@@ -11,6 +11,13 @@ pub fn readFileRaw(path: []const u8, target_buf: []u8) !usize {
     return try file.readAll(target_buf[0..]);
 }
 
+test "readFileRaw" {
+    var buf = main.initBoundedArray(u8, 1024 * 1024);
+    try testing.expect(buf.slice().len == 0);
+    try buf.resize(try readFileRaw("testdata/01-warnme/01-warnme-stats.pi", buf.buffer[0..]));
+    try testing.expect(buf.slice().len > 0);
+}
+
 pub fn readFile(comptime T: type, comptime S: usize, path: []const u8, target_buf: *std.BoundedArray(T, S)) !void {
     // Reads contents and store in target_buf
     var file = try fs.cwd().openFile(path, .{ .read = true });
@@ -21,11 +28,6 @@ pub fn readFile(comptime T: type, comptime S: usize, path: []const u8, target_bu
     _ = try file.readAll(target_buf.slice()[0..]);
 }
 
-pub fn getLineEnding(buf: []const u8) []const u8 {
-    if(std.mem.indexOf(u8, buf, "\r\n") != null) return "\r\n";
-    return "\n";
-}
-
 test "readFile" {
     var buf = main.initBoundedArray(u8, 1024 * 1024);
     try testing.expect(buf.slice().len == 0);
@@ -33,9 +35,7 @@ test "readFile" {
     try testing.expect(buf.slice().len > 0);
 }
 
-test "readFileRaw" {
-    var buf = main.initBoundedArray(u8, 1024 * 1024);
-    try testing.expect(buf.slice().len == 0);
-    try buf.resize(try readFileRaw("testdata/01-warnme/01-warnme-stats.pi", buf.buffer[0..]));
-    try testing.expect(buf.slice().len > 0);
+pub fn getLineEnding(buf: []const u8) []const u8 {
+    if (std.mem.indexOf(u8, buf, "\r\n") != null) return "\r\n";
+    return "\n";
 }

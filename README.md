@@ -159,7 +159,7 @@ Development build/run:
 
 Install:
 
-    zig build install --prefix-exe-dir /usr/bin
+    zig build install --prefix-exe-dir /usr/local/bin
 
 *... or other path to put the executable to be in path.*
 
@@ -333,6 +333,7 @@ Must fix to be usable AKA pri-TODO:
 TODO, somewhat ordered:
 ------------
 * Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS
+    * TBD: shall we provide libcurl? If so, make sure to conform to https://curl.se/docs/copyright.html.
 * sapt -h should also provide information about format of test files, and perhaps also playbooks, to be self-contained.
     * Propose:
         * sapt -h test

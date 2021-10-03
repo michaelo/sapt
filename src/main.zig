@@ -6,13 +6,11 @@
 // * Determine design/strategy for handling .env-files
 // * Implement support for env-variables in variable-substitutions
 // * Implement some common, usable functions for expression-substition - e.g. base64-encode
-// * Integrate regexp-parser and implement it for response-verification and variable-extraction
 // * Add test-files to stresstest the parser wrt to parse errors, overflows etc
 // * Establish how to proper handle C-style strings wrt to curl-interop
 // * Implement basic playbook-support?
 // 
 const std = @import("std");
-const fs = std.fs;
 
 // Outputters
 // const info = std.log.info;
@@ -24,21 +22,16 @@ pub const log_level: std.log.Level = .debug;
 
 const testing = std.testing;
 
-const parser = @import("parser.zig");
+const argparse = @import("argparse.zig");
 const io = @import("io.zig");
 const kvstore = @import("kvstore.zig");
-
-const APP_NAME = "sapt";
-const APP_VERSION = "0.1.0";
+const parser = @import("parser.zig");
+const config = @import("config.zig");
 
 
 const cURL = @cImport({
     @cInclude("curl/curl.h");
 });
-
-const GLOBAL_DEBUG = false;
-const CONFIG_FILE_END = ".pi";
-const MAX_PATH_LEN = 1024;
 
 pub const errors = error {
     Ok,
@@ -108,6 +101,15 @@ pub const HttpHeader = struct {
     }
 };
 
+test "HttpHeader.render" {
+    var mybuf = initBoundedArray(u8, 2048);
+    var header = try HttpHeader.create("Accept", "application/xml");
+    
+    try header.render(mybuf.buffer.len, &mybuf);
+    try testing.expectEqualStrings("Accept: application/xml", mybuf.slice());
+}
+
+
 pub const ExtractionEntry = struct {
     name: std.BoundedArray(u8,256),
     expression: std.BoundedArray(u8,1024),
@@ -143,9 +145,9 @@ pub const Entry = struct {
     } = .{},
 };
 
-const FilePathEntry = std.BoundedArray(u8, MAX_PATH_LEN);
+pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
 
-const AppArguments = struct {
+pub const AppArguments = struct {
     //-v
     verbose: bool = false,
     //-d
@@ -153,237 +155,16 @@ const AppArguments = struct {
     //-r
     recursive: bool = false,
     //-i=<file>
-    input_vars_file: std.BoundedArray(u8,MAX_PATH_LEN) = initBoundedArray(u8, MAX_PATH_LEN),
+    input_vars_file: std.BoundedArray(u8,config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
     //-o=<file>
-    output_file: std.BoundedArray(u8,MAX_PATH_LEN) = initBoundedArray(u8, MAX_PATH_LEN),
+    output_file: std.BoundedArray(u8,config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
     //-f=<file>
-    playbook_file: std.BoundedArray(u8,MAX_PATH_LEN) = initBoundedArray(u8, MAX_PATH_LEN),
+    playbook_file: std.BoundedArray(u8,config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
     //-s
     silent: bool = false,
     // ...
     files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128),
 };
-
-fn printHelp(full: bool) void {
-
-    debug(
-        \\
-        \\{0s} v{1s} - Simple API Tester
-        \\
-        \\Usage: {0s} [arguments] file1 [file2 ... fileN]
-        \\
-        , .{APP_NAME, APP_VERSION}
-    );
-
-    if(!full) return;
-
-    debug(
-        \\{0s} gettoken.pi testsuite1/*
-        \\{0s} -p=myplaybook.book
-        \\{0s} -p=myplaybook.book -s -o=output.log
-        \\{0s} -i=testsuite01/.env testsuite01
-        \\
-        \\Arguments
-        \\  -h           Show this help
-        \\  -v           Verbose
-        \\  -r           Recursive -- not implemented yet
-        \\  -s           Silent -- not implemented yet
-        \\  -d           Show response data
-        \\  -i=file      Input-variables file
-        \\  -o=file      Redirect all output to file
-        \\  -p=playbook  Read tests to perform from playbook-file  -- not implemented yet
-        \\
-        , .{APP_NAME}
-    );
-}
-
-fn parseArgs(args: [][]const u8) !AppArguments {
-    var result: AppArguments = .{};
-
-    for(args) |arg| {
-        // Handle flags (-f, -s, ...)
-        // Handle arguments with values (-o=...)
-        // Handle rest (file/folder-arguments)
-        // TODO: Revise to have a flat list of explicit checks, but split at = for such entries when comparing
-        if(arg[0] == '-') {
-            switch(arg.len) {
-                0...1 => {
-                    return error.UnknownArgument;
-                },
-                2 => {
-                    switch(arg[1]) {
-                        'h' => { return error.ShowHelp; },
-                        'v' => { result.verbose = true; },
-                        'r' => { result.recursive = true; },
-                        's' => { result.silent = true; },
-                        'd' => { result.show_response_data = true; },
-                        else => { return error.UnknownArgument; }
-                    }
-                },
-                else => {
-                    // Parse key=value-types
-                    var eq_pos = std.mem.indexOf(u8, arg, "=") orelse return error.InvalidArgumentFormat;
-
-                    var key = arg[1..eq_pos];
-                    var value = arg[eq_pos+1..];
-
-                    if(std.mem.eql(u8, key, "o")) {
-                        try result.output_file.appendSlice(value);
-                    } else if(std.mem.eql(u8, key, "f")) {
-                        try result.playbook_file.appendSlice(value);
-                    }else if(std.mem.eql(u8, key, "i")) {
-                        try result.input_vars_file.appendSlice(value);
-                    }
-                }
-
-            }
-        } else {
-            // Is (assumed) file/folder
-            // TODO: Shall we here expand folders?
-            //       Alternatively, we can process this separately, add all entries to result.files and finally sort it by name
-            result.files.append(FilePathEntry.fromSlice(arg) catch {
-                return error.TooLongFilename;
-            }) catch {
-                return error.TooManyFiles;
-            };
-        }
-    }
-
-    return result;
-}
-
-
-fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray(FilePathEntry,max_files)) !void {
-    // Fail on files not matching expected name-pattern
-    // Expand folders
-    // Verify that files exists and are readable
-    var cwd = fs.cwd();
-    const readFlags = std.fs.File.OpenFlags {.read=true};
-    {
-        var i:usize = 0;
-        var file: *FilePathEntry = undefined;
-        while(i < files.slice().len) : ( i+=1 ) {
-            file = &files.get(i);
-            // debug("Processing: {s}\n", .{file.slice()}); # TODO: 
-            // Verify that file/folder exists, otherwise fail
-            cwd.access(file.constSlice(), readFlags) catch {
-                debug("Can not access '{s}'\n", .{file.slice()});
-                return error.NoSuchFileOrFolder;
-            };
-
-            // Try to open as dir
-            var dir = cwd.openDir(file.constSlice(), .{.iterate=true}) catch |e| switch(e) {
-                // Not a dir, that's OK
-                error.NotDir => continue,
-                else => return error.UnknownError,
-            };
-            defer dir.close();
-
-            var d_it = dir.iterate();
-            while (try d_it.next()) |a_path| {
-                var stat = try (try dir.openFile(a_path.name, readFlags)).stat();
-                switch(stat.kind) {
-                    .File => {
-                        // TODO: Ignore .env and non-.pi files here?
-                        // TODO: If we shall support .env-files pr folder/suite, then we will perhaps need to keep track of "suites" internally as well?
-
-                        var item = initBoundedArray(u8, MAX_PATH_LEN);
-                        try item.appendSlice(file.constSlice());
-                        try item.appendSlice("/");
-                        try item.appendSlice(a_path.name);
-                        // Add to files
-                        try files.append(item);
-                    },
-                    .Directory => {
-                        debug("Found subdir: {s}\n", .{a_path.name});
-                        // If recursive: process
-                    },
-                    else => {}
-                }
-            }
-        }
-    }
-
-    // Remove all folders
-    for(files.slice()) |file, i| {
-        _ = cwd.openDir(file.constSlice(), .{.iterate=true}) catch {
-            // Not a dir, leave alone
-            continue;
-        };
-        
-        // Dir, remove
-        _ = files.swapRemove(i);
-    }
-
-    // Sort the remainding entries
-    std.sort.sort(FilePathEntry, files.slice(), {}, struct {
-            fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
-                _ = context;
-                return std.mem.lessThan(u8, a.constSlice(), b.constSlice());
-            }
-        }.func);
-
-}
-
-test "parseArgs" {
-    const default_args: AppArguments = .{};
-
-    {
-        var myargs = [_][]const u8{};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.verbose == default_args.verbose);
-    }
-
-    {
-        var myargs = [_][]const u8{"-v"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.verbose);
-    }
-
-    {
-        var myargs = [_][]const u8{"-r"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.recursive);
-    }
-
-    {
-        var myargs = [_][]const u8{"-s"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.silent);
-    }
-
-    {
-        var myargs = [_][]const u8{"somefile"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.files.slice().len == 1);
-        try testing.expectEqualStrings("somefile", parsed_args.files.get(0).slice());
-    }
-
-    {
-        var myargs = [_][]const u8{"-o=myoutfile"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expectEqualStrings("myoutfile", parsed_args.output_file.slice());
-    }
-
-    {
-        var myargs = [_][]const u8{"-f=myplaybook"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
-    }
-}
-
-test "processInputFileArguments" {
-    var files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128);
-    try files.append(try FilePathEntry.fromSlice("testdata/01-warnme"));
-
-    try processInputFileArguments(128, &files);
-
-    // TODO: Verify all elements are parsed and in proper order
-    // Cases:
-    //   * If file, no need to expand
-    //   * If folder and no -r, expand contents only one leve
-    //   * If folder and -r, expand end recurse
-}
 
 fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
     var buffer = @intToPtr(*std.ArrayList(u8), @ptrToInt(user_data));
@@ -429,7 +210,7 @@ fn processEntry(entry: *Entry, args: AppArguments) !void {
     }
 
     // Debug
-    if(GLOBAL_DEBUG or args.verbose) {
+    if(args.verbose) {
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
             return error.CouldNotSetVerbose;
     }
@@ -524,7 +305,7 @@ pub fn main() !void {
     defer std.process.argsFree(aa, args);
 
     if(args.len == 1) {
-        printHelp(false);
+        argparse.printHelp(false);
         std.process.exit(0);
     }
 
@@ -544,12 +325,12 @@ pub fn mainInner(args: [][]u8) anyerror!void {
     var num_failed: u64 = 0;
     // TODO: Filter input-set first, to get the proper number of items? Or at least count them up
 
-    var parsed_args = parseArgs(args) catch |e| switch(e) {
-        error.ShowHelp => { printHelp(true); return; },
-        else => { debug("Invalid arguments.\n" ,.{}); printHelp(true); fatal("Exiting.", .{}); }
+    var parsed_args = argparse.parseArgs(args) catch |e| switch(e) {
+        error.ShowHelp => { argparse.printHelp(true); return; },
+        else => { debug("Invalid arguments.\n" ,.{}); argparse.printHelp(true); fatal("Exiting.", .{}); }
     };
 
-    processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
+    argparse.processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
         fatal("Could not process input file arguments: {s}\n", .{e});
     };
 
@@ -565,7 +346,7 @@ pub fn mainInner(args: [][]u8) anyerror!void {
     const time_start = std.time.milliTimestamp();
     for (parsed_args.files.slice()) |file| {
 
-        if(!std.mem.endsWith(u8, file.constSlice(), CONFIG_FILE_END)) continue;
+        if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_END)) continue;
         
         num_processed += 1;
 
@@ -664,12 +445,4 @@ test "envFileToKvStore" {
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
     return std.BoundedArray(T, capacity){.buffer=undefined};
-}
-
-test "HttpHeader.render" {
-    var mybuf = initBoundedArray(u8, 2048);
-    var header = try HttpHeader.create("Accept", "application/xml");
-    
-    try header.render(mybuf.buffer.len, &mybuf);
-    try testing.expectEqualStrings("Accept: application/xml", mybuf.slice());
 }

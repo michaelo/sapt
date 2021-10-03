@@ -257,13 +257,8 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
     return pairs;
 }
 
-fn byDepthDesc(context: void, a: BracketPair, b: BracketPair) bool {
-    _ = context;
-    return a.depth > b.depth;
-}
-
 // TODO: Are there any stdlib-variants of this?
-pub fn addUnsignedSigned(comptime UnsignedType: type, comptime SignedType: type, base: UnsignedType, delta: SignedType) !UnsignedType {
+fn addUnsignedSigned(comptime UnsignedType: type, comptime SignedType: type, base: UnsignedType, delta: SignedType) !UnsignedType {
     if (delta >= 0) {
         return std.math.add(UnsignedType, base, std.math.absCast(delta));
     } else {
@@ -289,39 +284,47 @@ const FunctionEntry = struct {
 };
 
 // Split out such functions to separate file
-fn func_woop(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcWoop(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     _ = value;
     try out_buf.insertSlice(0, "woop");
 }
 
-fn func_blank(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcBlank(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     _ = value;
     try out_buf.insertSlice(0, "");
 }
 
-fn func_myfunc(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcMyfunc(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     try out_buf.insertSlice(0, value);
 }
 
-fn func_base64enc(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
-    var buffer: [0x100]u8 = undefined;
+fn funcBase64enc(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+    var buffer: [1024]u8 = undefined;
     try out_buf.insertSlice(0, std.base64.standard.Encoder.encode(&buffer, value));
 }
 
-test "func_base64enc" {
+// fn funcBase64dec() !void {
+
+// }
+
+// fn funcUrlencode() !void {
+
+// }
+
+test "funcBase64enc" {
     var input = "abcde12345:";
     var expected = "YWJjZGUxMjM0NTo=";
 
     var output = try std.BoundedArray(u8, 1024).init(0);
-    try func_base64enc(input, &output);
+    try funcBase64enc(input, &output);
     try testing.expectEqualStrings(expected, output.constSlice());
 }
 
 const global_functions = [_]FunctionEntry{
-    FunctionEntry.create("woopout", func_woop),
-    FunctionEntry.create("blank", func_blank),
-    FunctionEntry.create("myfunc", func_myfunc),
-    FunctionEntry.create("base64enc", func_base64enc),
+    FunctionEntry.create("woopout", funcWoop),
+    FunctionEntry.create("blank", funcBlank),
+    FunctionEntry.create("myfunc", funcMyfunc),
+    FunctionEntry.create("base64enc", funcBase64enc),
 };
 
 fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
@@ -363,13 +366,18 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
     // * substitute slice in buffer
     // * loop through all remaining pairs and any .start or .end that's > prev.end + end_delta with x + end_delta
 
-    std.sort.sort(BracketPair, pairs.slice(), {}, byDepthDesc);
+    const SortFunc = struct {
+        pub fn byDepthDesc(context: void, a: BracketPair, b: BracketPair) bool {
+            _ = context;
+            return a.depth > b.depth;
+        }
+    };
+
+    std.sort.sort(BracketPair, pairs.slice(), {}, SortFunc.byDepthDesc);
     var end_delta: i64 = 0;
     for (pairs.slice()) |pair, i| {
         var pair_len = pair.end - pair.start + 1;
         var key = buffer.slice()[pair.start + 2 .. pair.end - 1];
-
-        // debug("Processing key: {s}\n", .{key});
 
         // check if key is a variable or function
         if (std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null) {
@@ -377,15 +385,11 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
             // Parse function name, extract "parameter", lookup and call proper function
             var func_key = key[0..std.mem.indexOf(u8, key, "(").?];
             var func_arg = key[std.mem.indexOf(u8, key, "(").? + 1 .. std.mem.indexOf(u8, key, ")").?];
-            // debug("Found func: {s} - {s}\n", .{func_key, func_arg});
             var function = try getFunction(func_key);
             var func_buf = main.initBoundedArray(u8, 1024);
             try function(func_arg, &func_buf);
-            // debug("  result: {s}\n", .{func_buf.slice()});
 
-            // debug("Replacing {s} with {s}", .{buffer.slice()[pair.start..pair.start+pair_len], });
             buffer.replaceRange(pair.start, pair_len, func_buf.slice()) catch {
-                // debug("Could not replace '{s}' with '{s}'\n", .{key_slice, variables[0].value.slice()});
                 return errors.ParseError; // TODO: Need more errors
             };
             end_delta = @intCast(i32, func_buf.slice().len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
@@ -393,9 +397,7 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
             if (variables.get(key)) |value| {
                 var value_len = value.len;
                 end_delta = @intCast(i32, value_len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
-                // debug("Replacing '{s}' with '{s}' (delta: {d})\n", .{buffer.slice()[pair.start..pair.start+pair_len], value, end_delta});
                 buffer.replaceRange(pair.start, pair_len, value) catch {
-                    // debug("Could not replace '{s}' with '{s}'\n", .{key_slice, variables[0].value.slice()});
                     return errors.ParseError; // TODO: Need more errors
                 };
             } else {
@@ -490,14 +492,11 @@ pub fn expressionExtractor(buf: []const u8, pattern: []const u8) ?ExpressionMatc
     if (std.mem.indexOf(u8, pattern, "()")) |pos| {
         var start_slice = pattern[0..pos];
         var end_slice = pattern[pos + 2 ..];
-        // debug("start_slice: {s}, end_slice: {s}\n", .{start_slice, end_slice});
 
         var start_pos = std.mem.indexOf(u8, buf, start_slice) orelse return null;
         var end_pos = std.mem.indexOfPos(u8, buf, start_pos + start_slice.len, end_slice) orelse return null;
 
         if (end_pos == 0) end_pos = buf.len;
-
-        // debug("value: {d} ({d}) - {d} ({d})\n", .{start_pos, start_slice.len, end_pos, end_slice.len});
 
         return ExpressionMatch{
             .result = buf[start_pos + start_slice.len .. end_pos],
