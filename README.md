@@ -19,7 +19,6 @@ Running the test:
 Help:
 
     % sapt -h
-    -- shows help
 
 
 sapt can take multiple arguments, both files and folders. The entire input-set will be sorted alphanumerically, thus you can dictate the order of execution by making sure the names of the scripts reflects the order:
@@ -120,8 +119,11 @@ Prerequisites:
 * [zig is installed](https://ziglang.org/download/) and available in path
 * [libcurl is installed](https://curl.se/download.html) and library and headers are available in either path or through pkg-config.
 
+Get source:
+
     git clone https://github.com/michaelo/sapt
     cd sapt
+
 
 Development build/run:
 
@@ -131,6 +133,8 @@ Install:
 
     zig build install --prefix-exe-dir /usr/bin
 
+*... or other path to put the executable to be in path.*
+
 
 Design goals:
 ------------
@@ -138,35 +142,6 @@ Design goals:
 * Tests should be easily written and arranged - no hidden headers or such
 * Support easy use of secrets and common variables/definitions
 
-
-Must fix to be usable AKA pri-TODO:
--------------
-* Support variables: missing from OS env
-* Output useful errors when it fails (HTTP-code, helpful labels for the most common ones, and the response)
-
-
-TODO:
-------------
-* Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS
-* Support .env-files or similar to pass in predefined variables: currently only support explicitly passing it through -i=path
-* Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
-* Allow support for OS-environment variables. Control by flag?
-* Support "playbook"-files to define e.g. order and repetitions?
-    * Playblooks shall also support setting variables
-* Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
-* Support parallel requests? Both for general perceived performance as well as for stress-tests (low pri)
-* Support response-time as test-prereq? Perhaps in playlist (low pri)
-* Test/verify safety of string lengths: parsing + how we add 0 for c-interop
-* Support list of curl-commands as alternative output?
-* TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
-* Support handling encrypted variables?
-* Support/use coloring for improved output
-* Support HTTP follow?
-
-Later:
-------
-* Performant, light-weight GUI (optional)? Plotting performance for stress tests and such.
-* Test feature flags based on comptime-parsing a feature-file
 
 Terminology:
 ------
@@ -318,6 +293,40 @@ Set of variable extraction expressions, optional:
     AUTH_TOKEN="token":"()"
 
 *TODO: Might support more regex-like expressions to control e.g. character groups and such.*
+
+
+Must fix to be usable AKA pri-TODO:
+-------------
+* Support variables: missing from OS env
+* Output useful errors when it fails (HTTP-code, helpful labels for the most common ones, and the response)
+
+
+TODO, somewhat ordered:
+------------
+* Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS
+* sapt -h should also provide information about format of test files, and perhaps also playbooks, to be self-contained.
+    * Propose:
+        * sapt -h test
+        * sapt -h playbook
+* Support .env-files or similar to pass in predefined variables: currently only support explicitly passing it through -i=path
+* Allow support for OS-environment variables. Control by flag?
+* Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
+* Support "playbook"-files to define e.g. order and repetitions?
+    * Playblooks shall also support setting variables
+* Test/verify safety of string lengths: parsing + how we add 0 for c-interop
+* Support/use coloring for improved output
+* Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
+* TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
+* Support handling encrypted variables?
+* Support HTTP follow?
+* Finish basic syntax highligh ruleset for the test-files
+* Dev: Test feature flags based on comptime-parsing a feature-file
+* Support list of curl-commands as alternative output?
+* Performant, light-weight GUI (optional)? Plotting performance for stress tests and such.
+* Support parallel requests? Both for general perceived performance as well as for stress-tests (low pri)
+* Support response-time as test-prereq? Perhaps in playlist (low pri)
+
+
 
 
 Thanks / attributions:
