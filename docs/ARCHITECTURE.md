@@ -50,3 +50,16 @@ Sources of variables:
   * An optional number of times each test shall be repeated, default: 1
   * An optional set of variables
 * Output: ...
+
+
+### File-injection into payload
+
+To support passing either larger sets of data, or perhaps a binary payload of some sorts it might be beneficiary to be able to simply point to an external file.
+
+Proposed syntax:
+
+    > GET https://my.service/endpoint
+    Content-Type: image/jpeg
+    # Specife a file by adding a path-reference directly after the payload-separator:
+    - myfile.jpg
+    < 200

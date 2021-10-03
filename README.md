@@ -1,17 +1,37 @@
-sapt - Simple API testing tool
+sapt - A simple tool for API testing
 ==============
 
-A simple tool to counter e.g. Postman.
+    You: Why should I use this tool?
+    
+    Me: Good question, I'm glad you asked!
+        There's a good chance you shouldn't. There are several well established alternatives you should consider instead. E.g. Postman, httpier, or perhaps cURL.
+    
+    You: ... ok? ...
+    
+    Me: But, if you should find those tools either to heavy to run, too unpredictable with regards to where your data may be stored, or simply just too slow or complex to run or compose tests for, sapt might be of interest.
+    
+    You: Go on...
+
+    Me: sapt is a lightweight tool, both with regards to runtime requirements, as well as its' feature set. It also provides you with full control of your own data. See "Design goals" further down, or "docs/COMPARISONS.md" to see what sapt focuses on. 
+
+    You: I've tried it and: (pick a choice)
+        a) I loved it
+            Me: Awesome!
+        b) I hated it
+            Me: No worries. I made it first and foremost to make my own (work-)life easier - and it already has. Take care!
+
 
 Usage: Basic
 -------------
+
+sapt requires you to organise your requests in individual files. Those files may be gathered in folders to create test suites.
     
 testsuite/01-mytest.pi contents:
     
     > GET https://api.warnme.no/api/status
     < 200
 
-Running the test:
+Running a single test:
 
     % sapt testsuite/01-mytest.pi
     1/1 testsuite/01-mytest.pi                                : OK
@@ -141,6 +161,7 @@ Design goals:
 * Only you should own and control your data - e.g. any version control and data sharing is up to you.
 * Tests should be easily written and arranged - no hidden headers or such
 * Support easy use of secrets and common variables/definitions
+* Tests should live alongside the artifacts they tests
 
 
 Terminology:
@@ -156,7 +177,7 @@ Terminology:
     <tbody>
         <tr>
             <td>test</td>
-            <td>the particular file to be performed. A test can result in "OK" or "ERROR"</td>
+            <td>the particular file/request to be processed. A test can result in "OK" or "ERROR"</td>
         </tr>
         <tr>
             <td>playbook</td>
@@ -319,6 +340,7 @@ TODO, somewhat ordered:
 * TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
 * Support handling encrypted variables?
 * Support HTTP follow?
+* Actively limit the set of protocols we allow?
 * Finish basic syntax highligh ruleset for the test-files
 * Dev: Test feature flags based on comptime-parsing a feature-file
 * Support list of curl-commands as alternative output?
