@@ -29,6 +29,10 @@ Unstable
 
 This sections is reserved for features and decisions which have not rached maturity yet.
 
+### Test file structure/specification
+
+    TBD: Pr now described in README.md, see "Test-file specification"
+
 ### Variable handling
 
 The tool shall support access to environment variables (?) as well as be able to: 1) read variables from .env-files and populate variables based on response from tests.
@@ -51,6 +55,49 @@ Sources of variables:
   * An optional set of variables
 * Output: ...
 
+Exploration of an all-encompassing playbook-format: 
+
+    # Exploration of integrated tests in playbooks
+    # Can rely on newline+> to indicate new tests.
+    # Can allow for a set of variables defined at top before first test as well.
+    #     The format should allow combination of file-references as well as inline definitions
+    # Syntax (proposal):
+    #    Include file directive starts with @
+    #       If file-ext matches test-file then allow for repeat-counts as well
+    #       If file-ext matches .env then treat as envs
+    #       If file-ext matches playbook-file then include playbook? TBD. Must avoid recursion-issues and such. Not pri. Pr now: report as error
+    #    Included tests starts with a line with '>' and ends with a line with either '@' (new include) or new '>' (new test). Otherwise treated exactly as regular test-files. Repeat-control?
+    #    If line not inside inline-test, and not starts with @, check for = and if match treat as variable definition
+    #    Otherwise: syntax error
+    #    
+    # Load env from file
+    @myservice/.env
+    # Define env in-file
+    MY_ENV=Woop
+
+    # Refer to external test
+    @generic/01-oidc-auth.pi
+
+    # Refer to external test with repeats
+    @myservice/01-getentries.pi 50
+
+    # Inline-test 1
+    > GET https://my.service/api/health
+    Accept: application/json
+    Cookie: SecureToken={{oidc_token}}
+    < 200 OK
+    # Store entire response:
+    EXTRACTED_ENTRY=()
+
+    # Refer to external test inbetween inlines
+    @myservice/01-getentries.pi 50
+
+    # Another inline-test
+    > GET https://my.service/api/health
+    Accept: application/json
+    Cookie: SecureToken={{oidc_token}}
+    < 200
+
 
 ### File-injection into payload
 
@@ -60,6 +107,6 @@ Proposed syntax:
 
     > GET https://my.service/endpoint
     Content-Type: image/jpeg
-    # Specife a file by adding a path-reference directly after the payload-separator:
-    - myfile.jpg
+    # Specife a file by adding a '@'+path-reference directly after the payload-separator:
+    -@myfile.jpg
     < 200

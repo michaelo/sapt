@@ -1,32 +1,10 @@
 sapt - A simple tool for API testing
 ==============
+*Att: I'm testing different intro-texts to test what communicates the intention the best*
 
-    You: Why should I use this tool?
-    
-    Me: Good question, I'm glad you asked!
-        There's a good chance you shouldn't. There are several well established
-        alternatives you should consider instead. E.g. Postman, httpier, or 
-        perhaps cURL.
-    
-    You: ... ok? ...
-    
-    Me: But, if you should find those tools either to heavy to run, too
-        unpredictable with regards to where your data may be stored, or simply
-        just too slow or complex to run or compose tests for, sapt might be of
-        interest.
-    
-    You: Go on...
+sapt aims to be a simple tool to help with API-testing and similar use cases. It focuses on making it easy for developers to compose, organize and perform tests/requests in an open, reliable and source-control friendly way.
 
-    Me: sapt is a lightweight tool, both with regards to runtime requirements,
-        as well as its' feature set. It also provides you with full control of
-        your own data. See "Design goals" further down, or
-        "docs/COMPARISONS.md" to see what sapt focuses on. 
-
-    You: I've tried it and: (pick a choice)
-        a) I loved it
-            Me: Awesome!
-        b) I hated it
-            Me: No worries. Take care!
+sapt *"is not"* a full-fledged GUI-based do-anything tool, but rather a focused command line utility.
 
 
 Usage: Basic
@@ -58,12 +36,44 @@ sapt can take multiple arguments, both files and folders. The entire input-set w
 
 *Note: playbooks will later provide a way to override this.*
 
+<!-- 
+Why oh why
+----------------
+
+    You: Why should I use this tool?
+    
+    Me: Good question, I'm glad you asked!
+        There's a good chance you shouldn't. There are several well established
+        alternatives you should consider instead. E.g. Postman, httpier, or 
+        perhaps cURL.
+    
+    You: ... ok? ...
+    
+    Me: But, if you should find those tools either to heavy to run, too
+        unpredictable with regards to where your data may be stored, or simply
+        just too slow or complex to run or compose tests for, sapt might be of
+        interest.
+    
+    You: Go on...
+
+    Me: sapt is a lightweight tool, both with regards to runtime requirements,
+        as well as its' feature set. It also provides you with full control of
+        your own data. See "Design goals" further down, or
+        "docs/COMPARISONS.md" to see what sapt focuses on. 
+
+    You: I've tried it and: (pick a choice)
+        a) I loved it
+            Me: Awesome!
+        b) I hated it
+            Me: No worries. Take care! -->
+
+
 Usage: Complex:
 ----------------
 
 Assuming you first have to get an authorization code from an auth-endpoint, which you will need in other tests.
 
-Assuming the following files:
+Let's say you have the following files:
 
 * myservice/.env
 * myservice/01-auth.pi
@@ -86,7 +96,7 @@ Assuming the following files:
     < 200
     id_token="id_token":"()"
 
-Assuming that the auth-endpoint will return something like this:
+Provided that the auth-endpoint will return something like this:
 
     {"access_token": "...", "id_token"="", "...", ...}
 
@@ -338,11 +348,13 @@ TODO, somewhat ordered:
     * Propose:
         * sapt -h test
         * sapt -h playbook
+* Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
 * Support .env-files or similar to pass in predefined variables: currently only support explicitly passing it through -i=path
 * Allow support for OS-environment variables. Control by flag?
 * Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
 * Support "playbook"-files to define e.g. order and repetitions?
-    * Playblooks shall also support setting variables
+    * Playbooks shall also support setting variables
+    * Playbooks might support including entire tests directly in the playbook. See exploration in docs/ARCHITECTURE.md
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
 * Support/use coloring for improved output
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests

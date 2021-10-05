@@ -5,6 +5,8 @@ const testing = std.testing;
 const main = @import("main.zig");
 const kvstore = @import("kvstore.zig");
 const io = @import("io.zig");
+const config = @import("config.zig");
+
 const errors = main.errors;
 const Entry = main.Entry;
 const HttpMethod = main.HttpMethod;
@@ -518,4 +520,192 @@ test "expressionExtractor" {
     try testing.expectEqualStrings("atc", expressionExtractor("match", "m()h").?.result);
     try testing.expectEqualStrings("123123", expressionExtractor("idtoken=123123", "token=()").?.result);
     try testing.expectEqualStrings("123123", expressionExtractor("123123=idtoken", "()=id").?.result);
+}
+
+
+
+const PlaybookSegmentType = enum {
+    Unknown,
+    Comment, // ignore?
+    TestInclude,
+    EnvInclude,
+    TestRaw,
+    EnvRaw
+};
+
+const PlaybookSegment = struct {
+    segment_type:PlaybookSegmentType = .Unknown,
+    slice: []const u8 = undefined, // Slice into raw buffer
+    // TODO: add run-spec for e.g. test-repetitions
+};
+
+
+
+fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
+    _ = buf;
+    _ = result;
+    var main_it = std.mem.split(u8, buf, io.getLineEnding(buf));
+    var line_idx: u64 = 0;
+    var seg_idx: u64 = 0;
+    while(main_it.next()) |line| {
+    // var jumpback: bool = true;
+        line_idx += 1;
+        if(line.len == 0) continue; // ignore blank lines TBD: Must be sure we don't skip them if part of payload
+        if(line[0] == '#') continue; // ignore comments
+
+        // jumpbackblock: while(jumpback) {
+        //     jumpback = false;
+            // Top level evaluation
+            switch(line[0]) {
+                '@' => {
+                    // Got file inclusion segment
+                    // TODO: it doesn't necessarily end with the ext - it may containt runtime-specs as well (e.g. repetitions)
+                    //       TBD: imlement non-space separator? e.g. '*'? 
+                    // var sub_it = std.mem.split(u8, line, "*");
+                    if(std.mem.endsWith(u8, line, config.CONFIG_FILE_EXT_TEST)) {
+                        result[seg_idx] = .{
+                            .segment_type = .TestInclude,
+                            .slice = line[1..]
+                        };
+                        seg_idx += 1;
+                    } else if(std.mem.endsWith(u8, line, config.CONFIG_FILE_EXT_ENV)) {
+                        result[seg_idx] = .{
+                            .segment_type = .EnvInclude,
+                            .slice = line[1..]
+                        };
+                        seg_idx += 1;
+                    }
+                },
+                '>' => {
+                    var buf_start = @ptrToInt(buf.ptr);
+                    var start_idx = @ptrToInt(line.ptr)-buf_start;
+                    var end_idx: ?u64 = null;
+                    // Parse "in-filed" test
+                    // Parse until next >, @ or eof
+                    // Opt: store pointer to start, iterate until end, store pointer to end, create slice from pointers?
+                    while(main_it.next()) |line2| {
+                        line_idx += 1;
+                        switch(line2[0]) {
+                            '>','@' => {
+                                end_idx = @ptrToInt(line2.ptr)-buf_start-1;
+                                // PROBLEM: We now have a new top-line section that should be process - need to to back to top-switch... TODO
+                                result[seg_idx] = .{
+                                    .segment_type = .TestRaw,
+                                    .slice = buf[start_idx..end_idx.?+1],
+                                };
+                                seg_idx += 1;
+                                // jumpback = true;
+                                // break :jumpbackblock;// break while...
+                            },
+                            else => {}
+                        }
+                    }
+
+                    if(end_idx == null) {
+                        // Reached end of file
+                        end_idx = @ptrToInt(&buf[buf.len-1]) - buf_start;
+
+                        result[seg_idx] = .{
+                            .segment_type = .TestRaw,
+                            .slice = buf[start_idx..end_idx.?+1],
+                        };
+                        seg_idx += 1;
+                    }
+                },
+                else => {
+                    if(std.mem.indexOf(u8, line, "=") != null) {
+                        result[seg_idx] = .{
+                            .segment_type = .EnvRaw,
+                            .slice = line[0..]
+                        };
+                        seg_idx += 1;
+                    }
+                }
+            }
+        // }
+    }
+    debug("return: {}\n", .{seg_idx});
+    return seg_idx;
+}
+
+test "parse playbook" {
+    { // include single test
+        const buf =
+        \\@some/test.pi
+        \\
+        ;
+        var segments = main.initBoundedArray(PlaybookSegment, 128);
+        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+        try testing.expectEqual(@intCast(usize, 1), segments.len);
+
+        try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(0).segment_type);
+        try testing.expectEqualStrings("some/test.pi", segments.get(0).slice);
+    }
+
+    { // include test and env
+        const buf =
+        \\@some/test.pi
+        \\@some/.env
+        \\
+        ;
+        var segments = main.initBoundedArray(PlaybookSegment, 128);
+        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+        try testing.expect(segments.len == 2);
+
+        try testing.expectEqual(PlaybookSegmentType.EnvInclude, segments.get(1).segment_type);
+        try testing.expectEqualStrings("some/.env", segments.get(1).slice);
+    }
+
+    {
+        // include specific env
+        const buf =
+        \\MY_ENV=somevalue
+        \\
+        ;
+        var segments = main.initBoundedArray(PlaybookSegment, 128);
+        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+        try testing.expect(segments.len == 1);
+
+        try testing.expectEqual(PlaybookSegmentType.EnvRaw, segments.get(0).segment_type);
+        try testing.expectEqualStrings("MY_ENV=somevalue", segments.get(0).slice);
+    }
+
+    {
+        // include specific test
+        const buf =
+        \\> GET https://my.service/api
+        \\< 200
+        ;
+        var segments = main.initBoundedArray(PlaybookSegment, 128);
+        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+        try testing.expect(segments.len == 1);
+
+        try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
+        try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
+    }
+
+
+    {
+        // include specific test
+        const buf =
+        \\> GET https://my.service/api
+        \\< 200
+        \\> GET https://my.service/api2
+        \\< 200
+        ;
+        var segments = main.initBoundedArray(PlaybookSegment, 128);
+        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+        try testing.expect(segments.len == 2);
+
+        try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
+        try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
+        try testing.expectEqualStrings("> GET https://my.service/api2\n< 200", segments.get(1).slice);
+    }
+
+
 }

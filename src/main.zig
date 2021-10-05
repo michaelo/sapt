@@ -346,7 +346,7 @@ pub fn mainInner(args: [][]u8) anyerror!void {
     const time_start = std.time.milliTimestamp();
     for (parsed_args.files.slice()) |file| {
 
-        if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_END)) continue;
+        if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
         
         num_processed += 1;
 
