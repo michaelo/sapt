@@ -540,7 +540,7 @@ const PlaybookSegment = struct {
 };
 
 
-
+/// Parses a playbook-file into a list of segments. Each segment must then be further processed according to the segment-type
 fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
     _ = buf;
     _ = result;
@@ -582,20 +582,20 @@ fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                     var end_idx: ?u64 = null;
                     // Parse "in-filed" test
                     // Parse until next >, @ or eof
-                    // Opt: store pointer to start, iterate until end, store pointer to end, create slice from pointers?
-                    while(main_it.next()) |line2| {
+                    // Opt: store pointer to start, iterate until end, store pointer to end, create slice from pointers
+                    chunk_blk: while(main_it.next()) |line2| {
                         line_idx += 1;
-                        switch(line2[0]) {
+                        // Check the following line
+                        if(main_it.rest().len == 0) break;// EOF
+                        switch(main_it.rest()[0]) {
                             '>','@' => {
-                                end_idx = @ptrToInt(line2.ptr)-buf_start-1;
-                                // PROBLEM: We now have a new top-line section that should be process - need to to back to top-switch... TODO
+                                end_idx = @ptrToInt(&line2[line2.len-1])-buf_start; // line2.len-1?
                                 result[seg_idx] = .{
                                     .segment_type = .TestRaw,
                                     .slice = buf[start_idx..end_idx.?+1],
                                 };
                                 seg_idx += 1;
-                                // jumpback = true;
-                                // break :jumpbackblock;// break while...
+                                break: chunk_blk;
                             },
                             else => {}
                         }
@@ -624,88 +624,83 @@ fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
             }
         // }
     }
-    debug("return: {}\n", .{seg_idx});
+    // debug("return: {}\n", .{seg_idx});
     return seg_idx;
 }
 
-test "parse playbook" {
-    { // include single test
-        const buf =
-        \\@some/test.pi
-        \\
-        ;
-        var segments = main.initBoundedArray(PlaybookSegment, 128);
-        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+test "parse playbook single test fileref" {
+    const buf =
+    \\@some/test.pi
+    \\
+    ;
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-        try testing.expectEqual(@intCast(usize, 1), segments.len);
+    try testing.expectEqual(@intCast(usize, 1), segments.len);
 
-        try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(0).segment_type);
-        try testing.expectEqualStrings("some/test.pi", segments.get(0).slice);
-    }
-
-    { // include test and env
-        const buf =
-        \\@some/test.pi
-        \\@some/.env
-        \\
-        ;
-        var segments = main.initBoundedArray(PlaybookSegment, 128);
-        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
-
-        try testing.expect(segments.len == 2);
-
-        try testing.expectEqual(PlaybookSegmentType.EnvInclude, segments.get(1).segment_type);
-        try testing.expectEqualStrings("some/.env", segments.get(1).slice);
-    }
-
-    {
-        // include specific env
-        const buf =
-        \\MY_ENV=somevalue
-        \\
-        ;
-        var segments = main.initBoundedArray(PlaybookSegment, 128);
-        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
-
-        try testing.expect(segments.len == 1);
-
-        try testing.expectEqual(PlaybookSegmentType.EnvRaw, segments.get(0).segment_type);
-        try testing.expectEqualStrings("MY_ENV=somevalue", segments.get(0).slice);
-    }
-
-    {
-        // include specific test
-        const buf =
-        \\> GET https://my.service/api
-        \\< 200
-        ;
-        var segments = main.initBoundedArray(PlaybookSegment, 128);
-        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
-
-        try testing.expect(segments.len == 1);
-
-        try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
-        try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
-    }
+    try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(0).segment_type);
+    try testing.expectEqualStrings("some/test.pi", segments.get(0).slice);
+}
 
 
-    {
-        // include specific test
-        const buf =
-        \\> GET https://my.service/api
-        \\< 200
-        \\> GET https://my.service/api2
-        \\< 200
-        ;
-        var segments = main.initBoundedArray(PlaybookSegment, 128);
-        try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+test "parse playbook fileref and envref" {
+    const buf =
+    \\@some/test.pi
+    \\@some/.env
+    \\
+    ;
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-        try testing.expect(segments.len == 2);
+    try testing.expectEqual(@intCast(usize, 2), segments.len);
 
-        try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
-        try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
-        try testing.expectEqualStrings("> GET https://my.service/api2\n< 200", segments.get(1).slice);
-    }
+    try testing.expectEqual(PlaybookSegmentType.EnvInclude, segments.get(1).segment_type);
+    try testing.expectEqualStrings("some/.env", segments.get(1).slice);
+}
+
+test "parse playbook single raw var" {
+    const buf =
+    \\MY_ENV=somevalue
+    \\
+    ;
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+    try testing.expectEqual(@intCast(usize, 1), segments.len);
+
+    try testing.expectEqual(PlaybookSegmentType.EnvRaw, segments.get(0).segment_type);
+    try testing.expectEqualStrings("MY_ENV=somevalue", segments.get(0).slice);
+}
+
+test "parse playbook raw test" {
+    const buf =
+    \\> GET https://my.service/api
+    \\< 200
+    ;
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+    try testing.expectEqual(@intCast(usize, 1), segments.len);
+
+    try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
+    try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
+}
 
 
+test "parse playbook two raw tests, one with extraction-expressions" {
+    const buf =
+    \\> GET https://my.service/api
+    \\< 200
+    \\> GET https://my.service/api2
+    \\< 200
+    \\RESPONSE=()
+    ;
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+    try testing.expectEqual(@intCast(usize, 2), segments.len);
+
+    try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
+    try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
+    try testing.expectEqualStrings("> GET https://my.service/api2\n< 200\nRESPONSE=()", segments.get(1).slice);
 }
