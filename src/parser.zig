@@ -526,105 +526,125 @@ test "expressionExtractor" {
 
 const PlaybookSegmentType = enum {
     Unknown,
-    Comment, // ignore?
+    // Comment, // ignore?
     TestInclude,
     EnvInclude,
     TestRaw,
     EnvRaw
 };
 
+const SegmentMetadata = union(PlaybookSegmentType) {
+    Unknown: void,
+    TestInclude: struct {
+        repeats: u64,
+    },
+    // Comment, // ignore?
+    EnvInclude: void,
+    TestRaw: void,
+    EnvRaw: void,
+};
+
 const PlaybookSegment = struct {
     segment_type:PlaybookSegmentType = .Unknown,
     slice: []const u8 = undefined, // Slice into raw buffer
     // TODO: add run-spec for e.g. test-repetitions
+    meta: SegmentMetadata = undefined,
 };
 
 
 /// Parses a playbook-file into a list of segments. Each segment must then be further processed according to the segment-type
 fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
-    _ = buf;
-    _ = result;
     var main_it = std.mem.split(u8, buf, io.getLineEnding(buf));
     var line_idx: u64 = 0;
     var seg_idx: u64 = 0;
+
     while(main_it.next()) |line| {
-    // var jumpback: bool = true;
         line_idx += 1;
         if(line.len == 0) continue; // ignore blank lines TBD: Must be sure we don't skip them if part of payload
         if(line[0] == '#') continue; // ignore comments
 
-        // jumpbackblock: while(jumpback) {
-        //     jumpback = false;
-            // Top level evaluation
-            switch(line[0]) {
-                '@' => {
-                    // Got file inclusion segment
-                    // TODO: it doesn't necessarily end with the ext - it may containt runtime-specs as well (e.g. repetitions)
-                    //       TBD: imlement non-space separator? e.g. '*'? 
-                    // var sub_it = std.mem.split(u8, line, "*");
-                    if(std.mem.endsWith(u8, line, config.CONFIG_FILE_EXT_TEST)) {
-                        result[seg_idx] = .{
-                            .segment_type = .TestInclude,
-                            .slice = line[1..]
-                        };
-                        seg_idx += 1;
-                    } else if(std.mem.endsWith(u8, line, config.CONFIG_FILE_EXT_ENV)) {
-                        result[seg_idx] = .{
-                            .segment_type = .EnvInclude,
-                            .slice = line[1..]
-                        };
-                        seg_idx += 1;
+        // Top level evaluation
+        switch(line[0]) {
+            '@' => {
+                // Got file inclusion segment
+                // TODO: it doesn't necessarily end with the ext - it may containt runtime-specs as well (e.g. repetitions)
+                //       TBD: imlement non-space separator? e.g. '*'? 
+                var sub_it = std.mem.split(u8, line[1..], "*");
+                var path = std.mem.trim(u8, sub_it.next().?, " "); // expected to be there, otherwise error
+
+                if(std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_TEST)) {
+                    var meta_raw = sub_it.next(); // may be null
+                    var repeats: u64 = 1;
+                    if(meta_raw) |meta| {
+                        repeats = parseStrToDec(u64, std.mem.trim(u8, meta, " "));
                     }
-                },
-                '>' => {
-                    var buf_start = @ptrToInt(buf.ptr);
-                    var start_idx = @ptrToInt(line.ptr)-buf_start;
-                    var end_idx: ?u64 = null;
-                    // Parse "in-filed" test
-                    // Parse until next >, @ or eof
-                    // Opt: store pointer to start, iterate until end, store pointer to end, create slice from pointers
-                    chunk_blk: while(main_it.next()) |line2| {
-                        line_idx += 1;
-                        // Check the following line
-                        if(main_it.rest().len == 0) break;// EOF
-                        switch(main_it.rest()[0]) {
-                            '>','@' => {
-                                end_idx = @ptrToInt(&line2[line2.len-1])-buf_start; // line2.len-1?
-                                result[seg_idx] = .{
-                                    .segment_type = .TestRaw,
-                                    .slice = buf[start_idx..end_idx.?+1],
-                                };
-                                seg_idx += 1;
-                                break: chunk_blk;
+                    
+                    result[seg_idx] = .{
+                        .segment_type = .TestInclude,
+                        .slice = path,
+                        .meta = .{
+                            .TestInclude = .{
+                                .repeats = repeats,
                             },
-                            else => {}
-                        }
-                    }
-
-                    if(end_idx == null) {
-                        // Reached end of file
-                        end_idx = @ptrToInt(&buf[buf.len-1]) - buf_start;
-
-                        result[seg_idx] = .{
-                            .segment_type = .TestRaw,
-                            .slice = buf[start_idx..end_idx.?+1],
-                        };
-                        seg_idx += 1;
-                    }
-                },
-                else => {
-                    if(std.mem.indexOf(u8, line, "=") != null) {
-                        result[seg_idx] = .{
-                            .segment_type = .EnvRaw,
-                            .slice = line[0..]
-                        };
-                        seg_idx += 1;
+                        },
+                    };
+                    seg_idx += 1;
+                } else if(std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_ENV)) {
+                    result[seg_idx] = .{
+                        .segment_type = .EnvInclude,
+                        .slice = path
+                    };
+                    seg_idx += 1;
+                }
+            },
+            '>' => {
+                // Parse "in-filed" test
+                var buf_start = @ptrToInt(buf.ptr);
+                var start_idx = @ptrToInt(line.ptr)-buf_start;
+                var end_idx: ?u64 = null;
+                // Parse until next >, @ or eof
+                // Opt: store pointer to start, iterate until end, store pointer to end, create slice from pointers
+                chunk_blk: while(main_it.next()) |line2| {
+                    line_idx += 1;
+                    // Check the following line
+                    if(main_it.rest().len == 0) break;// EOF
+                    switch(main_it.rest()[0]) {
+                        '>','@' => {
+                            end_idx = @ptrToInt(&line2[line2.len-1])-buf_start; // line2.len-1?
+                            result[seg_idx] = .{
+                                .segment_type = .TestRaw,
+                                .slice = buf[start_idx..end_idx.?+1],
+                            };
+                            seg_idx += 1;
+                            break: chunk_blk;
+                        },
+                        else => {}
                     }
                 }
+
+                if(end_idx == null) {
+                    // Reached end of file
+                    end_idx = @ptrToInt(&buf[buf.len-1]) - buf_start;
+
+                    result[seg_idx] = .{
+                        .segment_type = .TestRaw,
+                        .slice = buf[start_idx..end_idx.?+1],
+                    };
+                    seg_idx += 1;
+                }
+            },
+            else => {
+                if(std.mem.indexOf(u8, line, "=") != null) {
+                    result[seg_idx] = .{
+                        .segment_type = .EnvRaw,
+                        .slice = line[0..]
+                    };
+                    seg_idx += 1;
+                }
             }
-        // }
+        }
     }
-    // debug("return: {}\n", .{seg_idx});
+
     return seg_idx;
 }
 
@@ -642,6 +662,19 @@ test "parse playbook single test fileref" {
     try testing.expectEqualStrings("some/test.pi", segments.get(0).slice);
 }
 
+
+test "parse playbook test filerefs can have repeats" {
+    const buf =
+    \\@some/test.pi*10
+    \\
+    ;
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+    try testing.expectEqual(@intCast(usize, 1), segments.len);
+
+    try testing.expectEqual(@intCast(usize, 10), segments.get(0).meta.TestInclude.repeats);
+}
 
 test "parse playbook fileref and envref" {
     const buf =
@@ -703,4 +736,64 @@ test "parse playbook two raw tests, one with extraction-expressions" {
     try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
     try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
     try testing.expectEqualStrings("> GET https://my.service/api2\n< 200\nRESPONSE=()", segments.get(1).slice);
+}
+
+test "parse super complex playbook" {
+    const buf =
+    \\# Exploration of integrated tests in playbooks
+    \\# Can rely on newline+> to indicate new tests.
+    \\# Can allow for a set of variables defined at top before first test as well.
+    \\#     The format should allow combination of file-references as well as inline definitions
+    \\# Syntax (proposal):
+    \\#    Include file directive starts with @
+    \\#       If file-ext matches test-file then allow for repeat-counts as well
+    \\#       If file-ext matches .env then treat as envs
+    \\#       If file-ext matches playbook-file then include playbook? TBD. Must avoid recursion-issues and such. Not pri. Pr now: report as error
+    \\#    Included tests starts with a line with '>' and ends with a line with either '@' (new include) or new '>' (new test). Otherwise treated exactly as regular test-files. Repeat-control?
+    \\#    If line not inside inline-test, and not starts with @, check for = and if match treat as variable definition
+    \\#    Otherwise: syntax error
+    \\#    
+    \\# Load env from file
+    \\@myservice/.env
+    \\# Define env in-file
+    \\MY_ENV=Woop
+    \\
+    \\# Refer to external test
+    \\@generic/01-oidc-auth.pi
+    \\
+    \\# Refer to external test with repeats
+    \\@myservice/01-getentries.pi * 50
+    \\
+    \\# Inline-test 1
+    \\> GET https://my.service/api/health
+    \\Accept: application/json
+    \\Cookie: SecureToken={{oidc_token}}
+    \\< 200 OK
+    \\# Store entire response:
+    \\EXTRACTED_ENTRY=()
+    \\
+    \\# Refer to external test inbetween inlines
+    \\@myservice/01-getentries.pi * 50
+    \\
+    \\# Another inline-test
+    \\> GET https://my.service/api/health
+    \\Accept: application/json
+    \\Cookie: SecureToken={{oidc_token}}
+    \\< 200
+    ;
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+
+    // for(segments.constSlice()) |segment, idx| {
+    //     debug("{d}: {s}: {s}\n", .{idx, segment.segment_type, segment.slice});
+    // }
+
+    try testing.expectEqual(@intCast(usize, 7), segments.len);
+    try testing.expectEqual(PlaybookSegmentType.EnvInclude, segments.get(0).segment_type);
+    try testing.expectEqual(PlaybookSegmentType.EnvRaw, segments.get(1).segment_type);
+    try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(2).segment_type);
+    try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(3).segment_type);
+    try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(4).segment_type);
+    try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(5).segment_type);
+    try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(6).segment_type);
 }

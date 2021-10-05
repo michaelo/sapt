@@ -79,7 +79,7 @@ Exploration of an all-encompassing playbook-format:
     @generic/01-oidc-auth.pi
 
     # Refer to external test with repeats
-    @myservice/01-getentries.pi 50
+    @myservice/01-getentries.pi * 50
 
     # Inline-test 1
     > GET https://my.service/api/health
@@ -90,7 +90,7 @@ Exploration of an all-encompassing playbook-format:
     EXTRACTED_ENTRY=()
 
     # Refer to external test inbetween inlines
-    @myservice/01-getentries.pi 50
+    @myservice/01-getentries.pi * 50
 
     # Another inline-test
     > GET https://my.service/api/health
