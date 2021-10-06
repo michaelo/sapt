@@ -83,6 +83,8 @@ pub const KvStore = struct {
         var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
         while (line_it.next()) |line| {
             if (line.len == 0) continue;
+            if (line[0] == '#') continue;
+            
             if (std.mem.indexOf(u8, line, "=")) |eqpos| {
                 try store.add(line[0..eqpos], line[eqpos + 1 ..]);
             } else {
@@ -92,10 +94,13 @@ pub const KvStore = struct {
         return store;
     }
 
+    // TODO: Add collision strategy here as well.
     pub fn addFromBuffer(self: *KvStore, buf: []const u8) !void {
         var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
         while (line_it.next()) |line| {
             if (line.len == 0) continue;
+            if (line[0] == '#') continue;
+
             if (std.mem.indexOf(u8, line, "=")) |eqpos| {
                 try self.add(line[0..eqpos], line[eqpos + 1 ..]);
             } else {
@@ -110,8 +115,8 @@ pub const KvStore = struct {
     };
 
     pub fn addFromOther(self: *KvStore, other: KvStore, collision_handling : CollisionStrategy) !void {
-        for(other.store.slice()) |entry| {
-            self.add(entry.key, entry.value) catch |e| switch(e) {
+        for(other.store.constSlice()) |entry| {
+            self.add(entry.key.constSlice(), entry.value.constSlice()) catch |e| switch(e) {
                 error.KeyAlreadyUsed => switch(collision_handling) {
                     .KeepFirst => {},
                     .Fail => return e,
@@ -149,6 +154,13 @@ test "KvFromBuffer" {
     {
         var store = try KvStore.fromBuffer(
             \\
+        );
+        try testing.expect(store.count() == 0);
+    }
+
+    {
+        var store = try KvStore.fromBuffer(
+            \\# Some comment
         );
         try testing.expect(store.count() == 0);
     }
