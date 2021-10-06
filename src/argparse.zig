@@ -36,8 +36,9 @@ pub fn printHelp(full: bool) void {
         \\  -d           Show response data
         \\  -i=file      Input-variables file
         \\  -o=file      Redirect all output to file
-        \\  -p=playbook  Read tests to perform from playbook-file  -- not implemented
-        \\               yet, and later autosense from regular tests based on extension
+        \\  -p=playbook  Read tests to perform from playbook-file -- if set, ignores
+        \\               other tests passed as arguments. Will later autosense
+        \\               based on extension instead if dedicated flag.
         \\
         , .{config.APP_NAME}
     );
