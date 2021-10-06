@@ -98,6 +98,14 @@ Exploration of an all-encompassing playbook-format:
     Cookie: SecureToken={{oidc_token}}
     < 200
 
+### Unified handling of playbook and files?
+
+Q: What shall be the behaviour if we attempt to both execute a playbook (or more?) + ordinary tests?
+
+* Shall this be allowed?
+* If yes: what shall be the ordering?
+
+For now: have a separate flag for playbook, and if playbook is specified only execute this.
 
 ### File-injection into payload
 

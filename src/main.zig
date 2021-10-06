@@ -36,7 +36,14 @@ const cURL = @cImport({
 pub const errors = error {
     Ok,
     ParseError,
-    TestsFailed
+    TestFailed,
+    TestsFailed,
+
+    ParseErrorInputSection,
+    ParseErrorOutputSection,
+    ParseErrorHeaderEntry,
+    ParseErrorExtractionEntry,
+    ParseErrorInputPayload,
 };
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
@@ -149,6 +156,10 @@ pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
 
 pub const AppArguments = struct {
     //-v
+    // TODO: need better control of verbosity:
+    //       * Show finer details of tests being performed, envs being loaded, expression executed etc. AKA sapt-verbose
+    //       * Show all i/o. AKA curl-verbose
+    //       * Less important: High-fidelity details to help debugging during development
     verbose: bool = false,
     //-d
     show_response_data: bool = false,
@@ -174,6 +185,7 @@ fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_dat
 }
 
 /// Primary worker function performing the request and handling the response
+/// TODO: Factor out a pure cURL-handler?
 fn processEntry(entry: *Entry, args: AppArguments) !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena_state.deinit();
@@ -269,16 +281,50 @@ fn evaluateEntryResult(entry: *Entry) bool {
     return true;
 }
 
-/// Returns a slice from <from> up to <to> or slice.len
+/// UTILITY: Returns a slice from <from> up to <to> or slice.len
 fn sliceUpTo(comptime T: type, slice: []T, from: usize, to: usize) []T {
     return slice[from..std.math.min(slice.len, to)];
 }
 
-fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, name: []const u8) !void {
-    _ = name;
-    // try entry.name.insertSlice(0, name);
-    try parser.parseContents(buf, entry); // TODO: catch and gracefully fail, allowing further cases to be run? 
-    try processEntry(entry, args); // TODO: catch and gracefully fail, allowing further cases to be run? 
+const ProcessStatistics = struct {
+    time_total: i64 = 0,
+    time_min: i64 = undefined,
+    time_max: i64 = undefined,
+    time_avg: i64 = undefined,
+};
+
+// Can possibly deprecate this and call directly from the location where it's done. Currently bundled for simplified error handling
+fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats: u32, stats: ?*ProcessStatistics) !void {
+    try parser.parseContents(buf, entry);
+
+    // time this
+    // defer {
+    //     const delta_time = std.time.milliTimestamp() - time_start;
+    //     if(stats) |value| {
+    //         value.milliseconds = delta_time;
+    //     }
+    // }
+    var i: usize=0;
+    if(stats) |value| {
+        const time_total_start = std.time.milliTimestamp();
+        value.time_max = 0;
+        value.time_min = std.math.maxInt(i64);
+        while(i<repeats) : (i += 1) {
+            var entry_time_start = std.time.milliTimestamp();
+            try processEntry(entry, args);
+            var entry_time = std.time.milliTimestamp() - entry_time_start;
+            value.time_max = std.math.max(entry_time, value.time_max);
+            value.time_min = std.math.min(entry_time, value.time_min);
+        }
+
+        var time_total = std.time.milliTimestamp() - time_total_start;
+        value.time_avg = @divTrunc(time_total, @intCast(i64, repeats));
+        value.time_total = time_total;
+    } else {
+        while(i<repeats) : (i += 1) {
+            try processEntry(entry, args);
+        }
+    }
 }
 
 fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
@@ -292,6 +338,162 @@ fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
             debug("Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
         }
     }
+}
+
+/// Main do'er to do anything related to orchestrating the execution of the entry, repeats and outputting the results
+/// Common to both regular flow (entries as arguments) and playbooks
+fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32) !void {
+    var entry: Entry = .{};
+    _ = input_vars;
+
+    var conclusion = false;
+
+    // Do
+    // TODO: Handle repeats?
+    var stats: ProcessStatistics = .{};
+    // TODO: handle errors differently for repeats and nots.
+    if(processEntryMain(&entry, args, entry_buf, repeats, &stats)) {
+        conclusion = evaluateEntryResult(&entry);
+    } else |err| {
+        // TODO: Switch the errors and give helpful output
+        debug("{d}/{d}: {s:<64}            : Process error {s}\n", .{idx, total, entry_name, err});
+        return error.CouldNotProcessEntry;
+    }
+
+    // Evaluate results
+    var result_string = if(conclusion) "OK" else "ERROR";
+
+    // Output neat and tidy output, respectiong args .silent, .data and .verbose
+    // TODO: Add VT100 colors
+    debug("{d}/{d}: {s:<64}            : {s} ({d})\n", .{idx, total, entry_name, result_string, entry.result.response_http_code});
+    if(repeats == 1) {
+        debug("  time: {}ms\n", .{stats.time_total});
+    } else {
+        debug("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
+    }
+
+    if (conclusion) {
+        // No need to extract if not successful
+        try extractExtractionEntries(entry, extracted_vars);
+
+        // Print all stored variables
+        if(args.verbose and extracted_vars.store.slice().len > 0) {
+            debug("Values extracted from response:\n", .{});
+            debug("-"**80 ++ "\n", .{});
+            for(extracted_vars.store.slice()) |v| {
+                debug("* {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
+            }
+            debug("-"**80 ++ "\n", .{});
+        }
+    } else {
+        // num_failed += 1;
+        debug("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
+        if(entry.result.response_http_code != entry.expected_http_code) {
+            debug("Expected HTTP {d}, got {d}\n", .{entry.expected_http_code, entry.result.response_http_code});
+        }
+
+        if(!entry.result.response_match) {
+            debug("Match requirement '{s}' was not successful\n", .{entry.expected_response_regex.constSlice()});
+        }
+    }
+
+    if(!conclusion or args.verbose or args.show_response_data) {
+        debug("Response (up to 1024KB):\n{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024*1024)});
+    }
+
+    if(!conclusion) return error.TestFailed;
+}
+
+fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: parser.PlaybookSegmentType) u64 {
+    var result: u64 = 0;
+    for(segments) |segment| {
+        if(segment.segment_type == segment_type) result += 1;
+    }
+    return result;
+}
+
+fn processPlaybook(playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !void {
+    // Load playbook
+    var buf = initBoundedArray(u8, 1024*1024);
+
+    io.readFile(u8, buf.buffer.len, playbook_path, &buf) catch {
+        debug("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
+        return error.ParseError;
+    };
+
+    var segments = initBoundedArray(parser.PlaybookSegment, 128);
+    try segments.resize(parser.parsePlaybook(buf.constSlice(), segments.unusedCapacitySlice()));
+
+
+    // Iterate over playbook and act according to each type
+    var num_failed: u64 = 0;
+    var num_processed: u64 = 0;
+    var total_num_tests = getNumOfSegmentType(segments.constSlice(), .TestInclude) + getNumOfSegmentType(segments.constSlice(), .TestRaw);
+    const time_start = std.time.milliTimestamp();
+    // Pass through each item and process according to type
+    for(segments.constSlice()) |segment| {
+        try buf.resize(0);
+
+        switch(segment.segment_type) {
+            .Unknown => { unreachable; },
+            .TestInclude, .TestRaw => {
+                num_processed += 1;
+                var name_buf: [128]u8 = undefined;
+                var name_slice: []u8 = undefined;
+                var repeats: u32 = 1;
+
+                // TODO: Store either name of file, or line-ref to playbook to ID test in output
+                if(segment.segment_type == .TestInclude) {
+                    // TODO: how to limit max length? will 128<s pad the result?
+                    name_slice = std.fmt.bufPrint(&name_buf, "{s}", .{segment.slice}) catch { unreachable; };
+                    repeats = segment.meta.TestInclude.repeats;
+                    // debug("Processing: {s}\n", .{segment.slice});
+                    // Load from file and parse
+                    io.readFile(u8, buf.buffer.len, segment.slice, &buf) catch {
+                        debug("ERROR: Could not read file: {s}\n", .{segment.slice});
+                        num_failed += 1;
+                        continue;
+                    };
+                } else {
+                    // debug("Processing: {s}\n", .{"inline test"});
+                    // Test raw
+                    name_slice = std.fmt.bufPrint(&name_buf, "Inline segment at line: {d}", .{segment.line_start}) catch { unreachable; };
+                    try buf.appendSlice(segment.slice);
+
+                }
+                parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars) catch {};
+                parser.expandVariablesAndFunctions(buf.buffer.len, &buf, input_vars) catch {};
+
+                if(processAndEvaluateEntryFromBuf(num_processed, total_num_tests, name_slice, buf.constSlice(), args, input_vars, extracted_vars, repeats)) {
+                    // OK
+                } else |_| {
+                    // debug("Got error: {s}\n", .{err});
+                    num_failed += 1;
+                }
+
+            },
+            .EnvInclude => {
+                // Load from file and parse
+                if(args.verbose) debug("Loading env-file: '{s}'\n", .{segment.slice});
+                try input_vars.addFromOther((try envFileToKvStore(segment.slice)), .Fail);
+            },
+            .EnvRaw => {
+                // Parse key=value directly
+                if(args.verbose) debug("Loading in-file env at line {d}\n", .{segment.line_start});
+                try input_vars.addFromBuffer(segment.slice);
+            }
+        }
+        // debug("{d}: {s}: {s}\n", .{idx, segment.segment_type, segment.slice});
+    }
+
+    debug(
+        \\------------------
+        \\{d}/{d} OK
+        \\------------------
+        \\FINISHED - total time: {d}s
+        \\
+        , .{num_processed-num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp()-time_start)/1000}
+    );
 
 }
 
@@ -321,8 +523,6 @@ pub fn mainInner(args: [][]u8) anyerror!void {
         return error.CURLGlobalInitFailed;
     defer cURL.curl_global_cleanup();
 
-    var num_processed: u64 = 0;
-    var num_failed: u64 = 0;
     // TODO: Filter input-set first, to get the proper number of items? Or at least count them up
 
     var parsed_args = argparse.parseArgs(args) catch |e| switch(e) {
@@ -341,89 +541,49 @@ pub fn mainInner(args: [][]u8) anyerror!void {
         input_vars = try envFileToKvStore(parsed_args.input_vars_file.constSlice());
     }
 
-
+    var num_processed: u64 = 0;
+    var num_failed: u64 = 0;
     var extracted_vars: kvstore.KvStore = .{};
-    const time_start = std.time.milliTimestamp();
-    for (parsed_args.files.slice()) |file| {
+    if(parsed_args.playbook_file.constSlice().len > 0) {
+        try processPlaybook(parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
+    } else {
+        const time_start = std.time.milliTimestamp();
 
-        if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
-        
-        num_processed += 1;
+        for (parsed_args.files.slice()) |file| {
+            if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
+            
+            num_processed += 1;
 
-        //////////////////
-        // Process
-        //////////////////
-        var entry = Entry{};
+            //////////////////
+            // Process
+            //////////////////
+            io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
+                debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
+                num_failed += 1;
+                continue;
+            };
 
-        debug("{d}: {s:<64}:", .{num_processed, file.constSlice()});
+            // Expand all variables
+            parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
+            parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
 
-        io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
-            debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
-            num_failed += 1;
-            continue;
-        };
-
-        // Expand all variables
-        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
-        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
-
-
-        // Process
-        processEntryMain(&entry, parsed_args, buf.constSlice(), file.constSlice()) catch |e| {
-            // TODO: Switch on e and print more helpful error messages. Also: revise and provide better errors in inner functions 
-            debug("ERROR: Got error: {s}\n", .{e});
-            num_failed += 1;
-            continue;
-        };
-
-
-        //////////////////
-        // Evaluate results
-        //////////////////
-
-        var conclusion = evaluateEntryResult(&entry);
-        var result_string = if(conclusion) "OK" else "ERROR";
-        debug("{s} (HTTP {d})\n", .{result_string, entry.result.response_http_code});
-        
-        // Expanded output - by default if error
-        if (conclusion) {
-            // No need to extract if not successful
-            try extractExtractionEntries(entry, &extracted_vars);
-
-            // Print all stored variables
-            if(parsed_args.verbose and extracted_vars.store.slice().len > 0) {
-                debug("Values extracted from response:\n", .{});
-                debug("-"**80 ++ "\n", .{});
-                for(extracted_vars.store.slice()) |v| {
-                    debug("* {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
-                }
-                debug("-"**80 ++ "\n", .{});
-            }
-        } else {
-            num_failed += 1;
-            debug("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
-            if(entry.result.response_http_code != entry.expected_http_code) {
-                debug("Expected HTTP {d}, got {d}\n", .{entry.expected_http_code, entry.result.response_http_code});
-            }
-
-            if(!entry.result.response_match) {
-                debug("Match requirement '{s}' was not successful\n", .{entry.expected_response_regex.constSlice()});
+            if(processAndEvaluateEntryFromBuf(num_processed, parsed_args.files.slice().len, file.constSlice(), buf.constSlice(), parsed_args, &input_vars, &extracted_vars, 1)) {
+                // OK
+            } else |err| {
+                debug("Got error: {s}\n", .{err});
+                num_failed += 1;
             }
         }
+        debug(
+            \\------------------
+            \\{d}/{d} OK
+            \\------------------
+            \\FINISHED - total time: {d}s
+            \\
+            , .{num_processed-num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp()-time_start)/1000}
+        );
 
-        if(!conclusion or parsed_args.verbose or parsed_args.show_response_data) {
-            debug("Response (up to 1024KB):\n{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024*1024)});
-        }
     }
-    const time_end = std.time.milliTimestamp();
-    debug(
-        \\------------------
-        \\{d}/{d} OK
-        \\------------------
-        \\FINISHED - total time: {d}s
-        \\
-        , .{num_processed-num_failed, num_processed, @intToFloat(f64, time_end-time_start)/1000}
-    );
 }
 
 pub fn envFileToKvStore(path: []const u8) !kvstore.KvStore {

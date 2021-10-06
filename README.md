@@ -351,6 +351,7 @@ TODO, somewhat ordered:
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
 * Support .env-files or similar to pass in predefined variables: currently only support explicitly passing it through -i=path
 * Allow support for OS-environment variables. Control by flag?
+* Provide better granularity for verbosity: e.g. separate between curl-verbose and sapt-verbose
 * Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
 * Support "playbook"-files to define e.g. order and repetitions?
     * Playbooks shall also support setting variables

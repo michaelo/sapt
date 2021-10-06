@@ -79,6 +79,8 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
                         try result.playbook_file.appendSlice(value);
                     }else if(std.mem.eql(u8, key, "i")) {
                         try result.input_vars_file.appendSlice(value);
+                    }else if(std.mem.eql(u8, key, "p")) {
+                        try result.playbook_file.appendSlice(value);
                     }
                 }
 

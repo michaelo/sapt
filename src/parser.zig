@@ -13,15 +13,6 @@ const HttpMethod = main.HttpMethod;
 const HttpHeader = main.HttpHeader;
 const ExtractionEntry = main.ExtractionEntry;
 
-fn parseStrToDec(comptime T: type, str: []const u8) T {
-    // TODO: Handle negatives?
-    var result: T = 0;
-    for (str) |v, i| {
-        result += (@as(T, v) - '0') * std.math.pow(T, 10, str.len - 1 - i);
-    }
-    return result;
-}
-
 pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     const ParseState = enum {
         Init,
@@ -38,31 +29,31 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
         fn parseInputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line[0..], " ");
             _ = lit.next(); // skip >
-            _result.method = HttpMethod.create(lit.next().?[0..]) catch return errors.ParseError;
+            _result.method = HttpMethod.create(lit.next().?[0..]) catch return errors.ParseErrorInputSection;
             const url = lit.next().?[0..];
-            _result.url.insertSlice(0, url) catch return errors.ParseError;
+            _result.url.insertSlice(0, url) catch return errors.ParseErrorInputSection;
         }
 
         fn parseOutputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, " ");
             _ = lit.next(); // skip <
-            _result.expected_http_code = parseStrToDec(u64, lit.next().?[0..]);
-            _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseError;
+            _result.expected_http_code = std.fmt.parseInt(u64, lit.next().?[0..], 10) catch return errors.ParseErrorOutputSection;
+            _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseErrorOutputSection;
         }
 
         fn parseHeaderEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, ":");
-            _result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch return errors.ParseError;
+            _result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch return errors.ParseErrorHeaderEntry;
         }
 
         fn parseExtractionEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, "=");
-            _result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch return errors.ParseError;
+            _result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch return errors.ParseErrorExtractionEntry;
         }
 
         fn parseInputPayloadLine(line: []const u8, _result: *Entry) !void {
-            _result.payload.appendSlice(line) catch return errors.ParseError;
-            _result.payload.append('\n') catch return errors.ParseError;
+            _result.payload.appendSlice(line) catch return errors.ParseErrorInputPayload;
+            _result.payload.append('\n') catch return errors.ParseErrorInputPayload;
         }
     };
 
@@ -524,7 +515,7 @@ test "expressionExtractor" {
 
 
 
-const PlaybookSegmentType = enum {
+pub const PlaybookSegmentType = enum {
     Unknown,
     // Comment, // ignore?
     TestInclude,
@@ -533,10 +524,10 @@ const PlaybookSegmentType = enum {
     EnvRaw
 };
 
-const SegmentMetadata = union(PlaybookSegmentType) {
+pub const SegmentMetadata = union(PlaybookSegmentType) {
     Unknown: void,
     TestInclude: struct {
-        repeats: u64,
+        repeats: u32,
     },
     // Comment, // ignore?
     EnvInclude: void,
@@ -544,7 +535,8 @@ const SegmentMetadata = union(PlaybookSegmentType) {
     EnvRaw: void,
 };
 
-const PlaybookSegment = struct {
+pub const PlaybookSegment = struct {
+    line_start: u64,
     segment_type:PlaybookSegmentType = .Unknown,
     slice: []const u8 = undefined, // Slice into raw buffer
     // TODO: add run-spec for e.g. test-repetitions
@@ -553,7 +545,7 @@ const PlaybookSegment = struct {
 
 
 /// Parses a playbook-file into a list of segments. Each segment must then be further processed according to the segment-type
-fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
+pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
     var main_it = std.mem.split(u8, buf, io.getLineEnding(buf));
     var line_idx: u64 = 0;
     var seg_idx: u64 = 0;
@@ -574,12 +566,13 @@ fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
 
                 if(std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_TEST)) {
                     var meta_raw = sub_it.next(); // may be null
-                    var repeats: u64 = 1;
+                    var repeats: u32 = 1;
                     if(meta_raw) |meta| {
-                        repeats = parseStrToDec(u64, std.mem.trim(u8, meta, " "));
+                        repeats = std.fmt.parseInt(u32, std.mem.trim(u8, meta, " "), 10) catch { return 1; };
                     }
                     
                     result[seg_idx] = .{
+                        .line_start = line_idx,
                         .segment_type = .TestInclude,
                         .slice = path,
                         .meta = .{
@@ -591,6 +584,7 @@ fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                     seg_idx += 1;
                 } else if(std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_ENV)) {
                     result[seg_idx] = .{
+                        .line_start = line_idx,
                         .segment_type = .EnvInclude,
                         .slice = path
                     };
@@ -599,19 +593,23 @@ fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
             },
             '>' => {
                 // Parse "in-filed" test
+                // This parses until we find start of another known segment type
+                // This chunk will later be properly validated when attempted parsed
                 var buf_start = @ptrToInt(buf.ptr);
+                var chunk_line_start = line_idx;
                 var start_idx = @ptrToInt(line.ptr)-buf_start;
                 var end_idx: ?u64 = null;
                 // Parse until next >, @ or eof
                 // Opt: store pointer to start, iterate until end, store pointer to end, create slice from pointers
                 chunk_blk: while(main_it.next()) |line2| {
                     line_idx += 1;
-                    // Check the following line
+                    // Check the following line, spin until we've reached another segment
                     if(main_it.rest().len == 0) break;// EOF
                     switch(main_it.rest()[0]) {
                         '>','@' => {
                             end_idx = @ptrToInt(&line2[line2.len-1])-buf_start; // line2.len-1?
                             result[seg_idx] = .{
+                                .line_start = chunk_line_start,
                                 .segment_type = .TestRaw,
                                 .slice = buf[start_idx..end_idx.?+1],
                             };
@@ -627,6 +625,7 @@ fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                     end_idx = @ptrToInt(&buf[buf.len-1]) - buf_start;
 
                     result[seg_idx] = .{
+                        .line_start = chunk_line_start,
                         .segment_type = .TestRaw,
                         .slice = buf[start_idx..end_idx.?+1],
                     };
@@ -636,10 +635,14 @@ fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
             else => {
                 if(std.mem.indexOf(u8, line, "=") != null) {
                     result[seg_idx] = .{
+                        .line_start = line_idx,
                         .segment_type = .EnvRaw,
                         .slice = line[0..]
                     };
                     seg_idx += 1;
+                } else {
+                    // Unsupported
+                    unreachable;
                 }
             }
         }
@@ -738,8 +741,7 @@ test "parse playbook two raw tests, one with extraction-expressions" {
     try testing.expectEqualStrings("> GET https://my.service/api2\n< 200\nRESPONSE=()", segments.get(1).slice);
 }
 
-test "parse super complex playbook" {
-    const buf =
+const buf_complex_playbook_example =
     \\# Exploration of integrated tests in playbooks
     \\# Can rely on newline+> to indicate new tests.
     \\# Can allow for a set of variables defined at top before first test as well.
@@ -781,8 +783,10 @@ test "parse super complex playbook" {
     \\Cookie: SecureToken={{oidc_token}}
     \\< 200
     ;
+
+test "parse super complex playbook" {
     var segments = main.initBoundedArray(PlaybookSegment, 128);
-    try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
+    try segments.resize(parsePlaybook(buf_complex_playbook_example, segments.unusedCapacitySlice()));
 
     // for(segments.constSlice()) |segment, idx| {
     //     debug("{d}: {s}: {s}\n", .{idx, segment.segment_type, segment.slice});
@@ -796,4 +800,99 @@ test "parse super complex playbook" {
     try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(4).segment_type);
     try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(5).segment_type);
     try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(6).segment_type);
+}
+
+const buf_complex_playbook_working_example =
+    \\# Load env from file
+    \\@testdata/01-warnme/.env
+    \\# Define env in-file
+    \\MY_ENV=Woop
+    \\
+    \\# Refer to external test
+    \\@testdata/01-warnme/01-warnme-stats.pi
+    \\
+    \\# Refer to external test with repeats
+    \\@testdata/01-warnme/01-warnme-status-ok.pi * 50
+    \\
+    \\# Inline-test 1
+    \\> GET https://api.warnme.no/api/stats
+    \\< 200
+    \\# Store entire response:
+    \\EXTRACTED_ENTRY=()
+    \\
+    \\# Refer to external test inbetween inlines
+    \\@testdata/01-warnme/01-warnme-status-ok.pi * 50
+    \\
+    \\# Another inline-test
+    \\> GET https://api.warnme.no/api/stats
+    \\< 200
+    ;
+
+// TODO: Refactor this playbook-processing-implementation to be used from main
+test "parse super complex playbook into proper data" {
+    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    try segments.resize(parsePlaybook(buf_complex_playbook_working_example, segments.unusedCapacitySlice()));
+
+    var buf = main.initBoundedArray(u8, 1024*1024);
+    var extracted_vars: kvstore.KvStore = .{};
+    var input_vars: kvstore.KvStore = .{};
+
+    // var num_processed: u64 = 0;
+    var num_failed: u64 = 0;
+    // Pass through each item and process according to type
+    for(segments.constSlice()) |segment| {
+        try buf.resize(0);
+
+        switch(segment.segment_type) {
+            .Unknown => { unreachable; },
+            .TestInclude => {
+                // Load from file and parse
+                io.readFile(u8, buf.buffer.len, segment.slice, &buf) catch {
+                    debug("ERROR: Could not read file: {s}\n", .{segment.slice});
+                    num_failed += 1;
+                    continue;
+                };
+                expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
+                expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
+
+                var entry = Entry{};
+                try parseContents(buf.constSlice(), &entry); 
+
+                // processEntryMain(&entry, parsed_args, buf.constSlice()) catch |e| {
+                //     // TODO: Switch on e and print more helpful error messages. Also: revise and provide better errors in inner functions 
+                //     debug("ERROR: Got error: {s}\n", .{e});
+                //     num_failed += 1;
+                //     continue;
+                // };
+
+            },
+            .TestRaw => {
+                // Parse directly
+                try buf.appendSlice(segment.slice);
+                expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
+                expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
+                
+                var entry = Entry{};
+                try parseContents(buf.constSlice(), &entry); 
+
+                // processEntryMain(&entry, parsed_args, buf.constSlice()) catch |e| {
+                //     // TODO: Switch on e and print more helpful error messages. Also: revise and provide better errors in inner functions 
+                //     debug("ERROR: Got error: {s}\n", .{e});
+                //     num_failed += 1;
+                //     continue;
+                // };
+
+            },
+            .EnvInclude => {
+                // Load from file and parse
+                debug("Attempt to load .env-file: '{s}'\n", .{segment.slice});
+                try input_vars.addFromOther((try main.envFileToKvStore(segment.slice)), .Fail);
+            },
+            .EnvRaw => {
+                // Parse directly
+                try input_vars.addFromBuffer(segment.slice);
+            }
+        }
+        // debug("{d}: {s}: {s}\n", .{idx, segment.segment_type, segment.slice});
+    }
 }

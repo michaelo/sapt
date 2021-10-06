@@ -1,0 +1,23 @@
+# Load env from file
+@testdata/01-warnme/.env
+# Define env in-file
+MY_ENV=Woop
+
+# Refer to external test
+@testdata/01-warnme/01-warnme-stats.pi
+
+# Refer to external test with repeats
+@testdata/01-warnme/01-warnme-status-ok.pi * 5
+
+# Inline-test 1
+> GET https://api.warnme.no/api/stats
+< 200
+# Store entire response:
+EXTRACTED_ENTRY=()
+
+# Refer to external test inbetween inlines
+@testdata/01-warnme/01-warnme-status-ok.pi * 5
+
+# Another inline-test
+> GET https://api.warnme.no/api/stats
+< 200
