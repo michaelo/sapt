@@ -351,13 +351,15 @@ TODO, somewhat ordered:
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
 * Support .env-files or similar to pass in predefined variables: currently only support explicitly passing it through -i=path
 * Allow support for OS-environment variables. Control by flag?
+* Implement support to do step-by-step tests by e.g. requiring user to press enter between each test
 * Provide better granularity for verbosity: e.g. separate between curl-verbose and sapt-verbose
 * Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
 * Support "playbook"-files to define e.g. order and repetitions?
     * Playbooks shall also support setting variables
     * Playbooks might support including entire tests directly in the playbook. See exploration in docs/ARCHITECTURE.md
+    * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
-* Support/use coloring for improved output
+* Support/use coloring for improved output - implement as a separate output-module which takes platform into account for compile-time checks to support VT-100 vs regular Windows CMD. Or just go full VT-100 as it seems later versions of Windows now supports this?
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
 * TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
 * Support handling encrypted variables?

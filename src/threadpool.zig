@@ -1,6 +1,7 @@
 const std = @import("std");
 const debug = std.debug.print;
 const Mutex = std.Thread.Mutex;
+const testing = std.testing;
 // Functionality to run a thread pool of n Threads with a list of tasks to be executed stored as function + workload.
 // Solution will then spin up n threads, each thread checks for next available entry in the list, locks while copying out the task, then unlocks for any other thread to get started.
 // If list is empty, finish thread
@@ -9,7 +10,8 @@ const Mutex = std.Thread.Mutex;
 // https://zig.news/kprotty/resource-efficient-thread-pools-with-zig-3291
 //
 // This is a simple variant which takes a predefined common function to activate for all work-items
-pub fn ThreadPool(_num_threads: usize, comptime PayloadType: type, comptime TaskCapacity: usize, worker_function: fn (*PayloadType) void) type {
+// Requirement: Set up from single thread, no modifications after start()
+pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, worker_function: fn (*PayloadType) void) type {
     const MAX_NUM_THREADS = 128;
     const ThreadPoolState = enum {
         NotStarted,
@@ -18,9 +20,11 @@ pub fn ThreadPool(_num_threads: usize, comptime PayloadType: type, comptime Task
     };
     return struct {
         const Self = @This();
-        const num_threads = _num_threads;
+        num_threads: usize,
+        work_mutex: Mutex = Mutex{},
 
         state: ThreadPoolState = ThreadPoolState.NotStarted,
+        // TBD: This can be an heap-allocated list to scale to "arbitrary" amounts 
         work: [TaskCapacity]PayloadType = undefined,
         next_work_item_idx: usize = 0,
         next_free_item_idx: usize = 0,
@@ -29,8 +33,12 @@ pub fn ThreadPool(_num_threads: usize, comptime PayloadType: type, comptime Task
 
         thread_pool: [MAX_NUM_THREADS]std.Thread = undefined,
 
+        /// Required to be populated from single thread as of now, and must be done before start.
         pub fn addWork(self: *Self, work: PayloadType) !void {
-            // TODO: Lock + make circular buffer
+            // TODO: Lock + make circular buffer?
+            // const held = self.work_mutex.acquire();
+            // defer held.release();
+
             if(self.isCapacity()) {
                 self.work[self.next_free_item_idx] = work;
                 // next_work_item_idx = next_free_item_idx;
@@ -40,8 +48,12 @@ pub fn ThreadPool(_num_threads: usize, comptime PayloadType: type, comptime Task
             }
         }
 
+        /// Not thread safe, must lock outside
         fn takeWork(self: *Self) !PayloadType {
-            // TOdO: Lock + make circular buffer
+            // TOdO: Lock + make circular buffer?
+            // const held = self.work_mutex.acquire();
+            // defer held.release();
+
             if(self.isWork()) {
                 var item_to_return = self.next_work_item_idx;
                 self.next_work_item_idx += 1;
@@ -62,11 +74,17 @@ pub fn ThreadPool(_num_threads: usize, comptime PayloadType: type, comptime Task
         /// Thread-worker
         fn worker(self: *Self) void {
             // While work to be done
+            var work: PayloadType = undefined;
             while(true) {
                 // Critical section
                 // Pop work
-                if(!self.isWork()) break;
-                var work = self.takeWork() catch { break; };
+                {
+                    const held = self.work_mutex.acquire();
+                    defer held.release();
+
+                    if(!self.isWork()) break;
+                    work = self.takeWork() catch { break; };
+                }
                 // End critical section
 
                // Call worker_function with workload
@@ -79,7 +97,7 @@ pub fn ThreadPool(_num_threads: usize, comptime PayloadType: type, comptime Task
             // Fill up thread pool, with .worker() 
             var t_id:usize = 0;
             // debug("{s} vs {s}\n", .{@TypeOf(self.worker), @TypeOf(ThreadPool(4, MyPayload, 100, MyPayload.worker){})});
-            while(t_id < num_threads) : (t_id += 1) {
+            while(t_id < self.num_threads) : (t_id += 1) {
                 self.thread_pool[t_id] = try std.Thread.spawn(.{}, Self.worker, .{self});
             }
         }
@@ -87,41 +105,60 @@ pub fn ThreadPool(_num_threads: usize, comptime PayloadType: type, comptime Task
         pub fn join(self: *Self) void {
             // Wait for all to finish
             var t_id:usize = 0;
-            while(t_id < num_threads) : (t_id += 1) {
+            while(t_id < self.num_threads) : (t_id += 1) {
                 self.thread_pool[t_id].join();
             }
-
         }
 
-        pub fn init() Self {
-            return Self{
+        pub fn startAndJoin(self: *Self) !void {
+            try self.start();
+            self.join();
+        }
 
+        pub fn init(wanted_num_threads: usize) Self {
+            return Self{
+                .num_threads = wanted_num_threads,
             };
         }
     };
 }
 
-//   
-const MyPayload = struct {
-    data: u64,
-    result: u64 = undefined,
 
-    pub fn worker(self: *MyPayload) void {
-        // _ = self;
-        self.result = self.data * 2;
-        debug("result: {d}\n", .{self.result});
-    }
-};
 
 
 test "threadpool basic implementation" {
-    var pool = ThreadPool(4, MyPayload, 100, MyPayload.worker).init();
+    const MyPayloadResult = struct {
+        total: u64 = 0,
+    };
+    //   
+    const MyPayload = struct {
+        const Self = @This();
+        data: u64,
+        result: *MyPayloadResult,
+
+        pub fn worker(self: *Self) void {
+            // _ = self;
+            var total = self.result.total;
+            total += self.data;
+            total += self.data;
+            self.result.total = total;
+        }
+    };
+
+    var result = MyPayloadResult{};
+
+    var pool = ThreadPool(MyPayload, 1000, MyPayload.worker).init(24);
     var tmp: usize = 0;
-    while(tmp < 100) : (tmp += 1) {
+    var checkresult: u64 = 0;
+    while(tmp < 1000) : (tmp += 1) {
+        checkresult += tmp*2;
         try pool.addWork(.{
             .data = tmp,
+            .result = &result,
         });
     }
     try pool.start();
     pool.join();
+    try testing.expect(checkresult == result.total);
+    debug("Result: {d}\n", .{result.total});
 }

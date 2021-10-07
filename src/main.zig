@@ -27,7 +27,7 @@ const io = @import("io.zig");
 const kvstore = @import("kvstore.zig");
 const parser = @import("parser.zig");
 const config = @import("config.zig");
-
+const threadpool = @import("threadpool.zig");
 
 const cURL = @cImport({
     @cInclude("curl/curl.h");
@@ -145,6 +145,7 @@ pub const Entry = struct {
     expected_http_code: u64 = 0, // 0 == don't care
     expected_response_regex: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
     extraction_entries: std.BoundedArray(ExtractionEntry,32) = initBoundedArray(ExtractionEntry, 32),
+    // TODO: Separate out the result? Might be useful especially for the multithread-handling
     result: struct {
         response_http_code: u64 = 0,
         response_match: bool = false,
@@ -199,7 +200,7 @@ fn processEntry(entry: *Entry, args: AppArguments) !void {
     const handle = cURL.curl_easy_init() orelse return error.CURLHandleInitFailed;
     defer cURL.curl_easy_cleanup(handle);
 
-    // TODO: Shall we get rid of heap?
+    // TODO: Shall we get rid of heap? Can use the 1MB-buffer in the entry directly...
     var response_buffer = std.ArrayList(u8).init(allocator);
     defer response_buffer.deinit();
 
@@ -296,37 +297,65 @@ const ProcessStatistics = struct {
 };
 
 // Can possibly deprecate this and call directly from the location where it's done. Currently bundled for simplified error handling
-fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats: u32, stats: ?*ProcessStatistics) !void {
+fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats: u32, stats: *ProcessStatistics) !void {
     try parser.parseContents(buf, entry);
 
-    // time this
-    // defer {
-    //     const delta_time = std.time.milliTimestamp() - time_start;
-    //     if(stats) |value| {
-    //         value.milliseconds = delta_time;
-    //     }
-    // }
-    var i: usize=0;
-    if(stats) |value| {
+    // TODO: Refactor this to better unify the different call-methods: stats, no stats (remove the possibility?), and multithreaded
+    stats.time_max = 0;
+    stats.time_min = std.math.maxInt(i64);
+    if(args.multithreaded and repeats > 1) {
+        debug("Starting multithreaded test ({d} threads working total {d} requests)\n", .{try std.Thread.getCpuCount(), repeats});
+
+        // We start naively, by sharing data, although it's not high-performance optimal, but
+        // it's a starting point from which we can improve once we've identifed all pitfalls 
+        const Payload = struct {
+            const Self = @This();
+            // TODO: Add mutexes
+            stats: *ProcessStatistics,
+            entry: *Entry,
+            args: *const AppArguments,
+
+            pub fn worker(self: *Self) void {
+                var entry_time_start = std.time.milliTimestamp();
+                processEntry(self.entry, self.args.*) catch {};
+                var entry_time = std.time.milliTimestamp() - entry_time_start;
+                self.stats.time_max = std.math.max(entry_time, self.stats.time_max);
+                self.stats.time_min = std.math.min(entry_time, self.stats.time_min);
+                self.stats.time_total += entry_time;
+            }
+        };
+
+        // Setup and execute pool
+        // const coreCount = try std.Thread.getCpuCount();
+        var pool = threadpool.ThreadPool(Payload, 1000, Payload.worker).init(try std.Thread.getCpuCount());
+        var i: usize=0;
+        while(i<repeats) : (i += 1) {
+            try pool.addWork(Payload{
+                .stats = stats,
+                .entry = entry,
+                .args = &args,
+            });
+        }
+
+        try pool.startAndJoin(); // Can fail if unable to spawn thread
+        // Evaluate results?
+    } else {
         const time_total_start = std.time.milliTimestamp();
-        value.time_max = 0;
-        value.time_min = std.math.maxInt(i64);
+
+        var i: usize=0;
         while(i<repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
             try processEntry(entry, args);
             var entry_time = std.time.milliTimestamp() - entry_time_start;
-            value.time_max = std.math.max(entry_time, value.time_max);
-            value.time_min = std.math.min(entry_time, value.time_min);
-        }
+            stats.time_max = std.math.max(entry_time, stats.time_max);
+            stats.time_min = std.math.min(entry_time, stats.time_min);
 
-        var time_total = std.time.milliTimestamp() - time_total_start;
-        value.time_avg = @divTrunc(time_total, @intCast(i64, repeats));
-        value.time_total = time_total;
-    } else {
-        while(i<repeats) : (i += 1) {
-            try processEntry(entry, args);
         }
+        stats.time_total = std.time.milliTimestamp() - time_total_start;
+
     }
+
+    stats.time_avg = @divTrunc(stats.time_total, @intCast(i64, repeats));
 }
 
 fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
@@ -607,38 +636,4 @@ test "envFileToKvStore" {
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
     return std.BoundedArray(T, capacity){.buffer=undefined};
-}
-
-
-
-
-test "mt" {
-    const WorkerContext = struct {
-        tnum: usize,
-    };
-
-    // const ctx = 
-    const workerFunc = struct {
-        pub fn worker(ctx: WorkerContext) !void {
-            _ = ctx;
-            debug("{d}: working...\n", .{ctx.tnum});
-        }
-    };
-    var context = WorkerContext{.tnum=0};
-
-    debug("num cores: {}\n", .{std.Thread.getCpuCount()});
-    var threads = initBoundedArray(std.Thread, 48);
-    // TODO: must ensure 
-    var t:usize = 0;
-    while(t < std.math.min(try std.Thread.getCpuCount(), threads.capacity())) : (t += 1) {
-        debug("Spawn thread...\n", .{});
-        context.tnum = t;
-        try threads.append(try std.Thread.spawn(.{}, workerFunc.worker, .{context}));
-    }
-
-    // Wait for all threads to finish.
-    for (threads.slice()) |thread| {
-        thread.join();
-    }
-
 }
