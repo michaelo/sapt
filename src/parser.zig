@@ -194,10 +194,33 @@ test "expandVariablesAndFunctions" {
     }
 
     {
+        var testbuf = try std.BoundedArray(u8, 1024).fromSlice("{{key}}{{key}}");
+        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+        try testing.expectEqualStrings("valuevalue", testbuf.slice());
+    }
+
+    {
         var testbuf = try std.BoundedArray(u8, 1024).fromSlice("woop {{key}} doop");
         try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
         try testing.expectEqualStrings("woop value doop", testbuf.slice());
     }
+}
+
+test "expansion bug" {
+    var variables = kvstore.KvStore{};
+    try variables.add("my_token", "valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue");
+
+    var testbuf = try std.BoundedArray(u8, 8*1024).fromSlice(
+        \\Authorization: bearer {{my_token}}
+        \\Cookie: RandomSecurityToken={{my_token}}; SomeOtherRandomCookie={{my_token}}
+        \\RandomSecurityToken: {{my_token}}
+    );
+    try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+    try testing.expectEqualStrings(
+        \\Authorization: bearer valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
+        \\Cookie: RandomSecurityToken=valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue; SomeOtherRandomCookie=valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
+        \\RandomSecurityToken: valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
+        , testbuf.slice());
 }
 
 const BracketPair = struct {
@@ -394,15 +417,14 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
                     return errors.ParseError; // TODO: Need more errors
                 };
             } else {
+                // debug("Could not find variable: '{s}'\n", .{key});
                 return error.NoSuchVariableFound;
             }
         }
 
-        // debug("\n{s}\n", .{buffer.constSlice()});
-
         for (pairs.slice()[i + 1 ..]) |*pair2| {
-            if (pair2.start > @intCast(i64, pair.start + 1) + end_delta) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
-            if (pair2.end > @intCast(i64, pair.start + 1) + end_delta) pair2.end = try addUnsignedSigned(u64, i64, pair2.end, end_delta);
+            if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
+            if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try addUnsignedSigned(u64, i64, pair2.end, end_delta);
         }
     }
 }
