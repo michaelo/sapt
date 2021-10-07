@@ -34,6 +34,8 @@ pub fn printHelp(full: bool) void {
         \\  -r           Recursive -- not implemented yet
         \\  -s           Silent -- not implemented yet
         \\  -d           Show response data
+        \\  -m           Activates multithreading - relevant for repeated tests via 
+        \\               playbooks.
         \\  -i=file      Input-variables file
         \\  -o=file      Redirect all output to file
         \\  -p=playbook  Read tests to perform from playbook-file -- if set, ignores
@@ -64,6 +66,7 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
                         'r' => { result.recursive = true; },
                         's' => { result.silent = true; },
                         'd' => { result.show_response_data = true; },
+                        'm' => { result.multithreaded = true; },
                         else => { return error.UnknownArgument; }
                     }
                 },
@@ -126,6 +129,12 @@ test "parseArgs" {
         var myargs = [_][]const u8{"-s"};
         var parsed_args = try parseArgs(myargs[0..]);
         try testing.expect(parsed_args.silent);
+    }
+
+    {
+        var myargs = [_][]const u8{"-m"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.multithreaded);
     }
 
     {

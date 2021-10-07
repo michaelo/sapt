@@ -165,6 +165,8 @@ pub const AppArguments = struct {
     show_response_data: bool = false,
     //-r
     recursive: bool = false,
+    //-m allows for concurrent requests for repeated tests
+    multithreaded: bool = false,
     //-i=<file>
     input_vars_file: std.BoundedArray(u8,config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
     //-o=<file>
@@ -605,4 +607,38 @@ test "envFileToKvStore" {
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
     return std.BoundedArray(T, capacity){.buffer=undefined};
+}
+
+
+
+
+test "mt" {
+    const WorkerContext = struct {
+        tnum: usize,
+    };
+
+    // const ctx = 
+    const workerFunc = struct {
+        pub fn worker(ctx: WorkerContext) !void {
+            _ = ctx;
+            debug("{d}: working...\n", .{ctx.tnum});
+        }
+    };
+    var context = WorkerContext{.tnum=0};
+
+    debug("num cores: {}\n", .{std.Thread.getCpuCount()});
+    var threads = initBoundedArray(std.Thread, 48);
+    // TODO: must ensure 
+    var t:usize = 0;
+    while(t < std.math.min(try std.Thread.getCpuCount(), threads.capacity())) : (t += 1) {
+        debug("Spawn thread...\n", .{});
+        context.tnum = t;
+        try threads.append(try std.Thread.spawn(.{}, workerFunc.worker, .{context}));
+    }
+
+    // Wait for all threads to finish.
+    for (threads.slice()) |thread| {
+        thread.join();
+    }
+
 }
