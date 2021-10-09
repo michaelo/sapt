@@ -28,6 +28,7 @@ const kvstore = @import("kvstore.zig");
 const parser = @import("parser.zig");
 const config = @import("config.zig");
 const threadpool = @import("threadpool.zig");
+const Console = @import("console.zig").Console;
 
 const cURL = @cImport({
     @cInclude("curl/curl.h");
@@ -366,7 +367,7 @@ fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
             try store.add(v.name.constSlice(), expression_result.result);
         } else {
             // TODO: Should be error?
-            debug("Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
+            Console.red("Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
         }
     }
 }
@@ -387,7 +388,7 @@ fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, 
         conclusion = evaluateEntryResult(&entry);
     } else |err| {
         // TODO: Switch the errors and give helpful output
-        debug("{d}/{d}: {s:<64}            : Process error {s}\n", .{idx, total, entry_name, err});
+        Console.red("{d}/{d}: {s:<64}            : Process error {s}\n", .{idx, total, entry_name, err});
         return error.CouldNotProcessEntry;
     }
 
@@ -396,11 +397,15 @@ fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, 
 
     // Output neat and tidy output, respectiong args .silent, .data and .verbose
     // TODO: Add VT100 colors
-    debug("{d}/{d}: {s:<64}            : {s} ({d})\n", .{idx, total, entry_name, result_string, entry.result.response_http_code});
-    if(repeats == 1) {
-        debug("  time: {}ms\n", .{stats.time_total});
+    if (conclusion) {
+        Console.green("{d}/{d}: {s:<64}            : {s} ({d})\n", .{idx, total, entry_name, result_string, entry.result.response_http_code});
     } else {
-        debug("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
+        Console.red("{d}/{d}: {s:<64}            : {s} ({d})\n", .{idx, total, entry_name, result_string, entry.result.response_http_code});
+    }
+    if(repeats == 1) {
+        Console.grey("  time: {}ms\n", .{stats.time_total});
+    } else {
+        Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
     }
 
     if (conclusion) {
@@ -418,18 +423,19 @@ fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, 
         }
     } else {
         // num_failed += 1;
-        debug("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
+        Console.plain("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
         if(entry.result.response_http_code != entry.expected_http_code) {
-            debug("Expected HTTP {d}, got {d}\n", .{entry.expected_http_code, entry.result.response_http_code});
+            Console.red("Fault: Expected HTTP {d}, got {d}\n", .{entry.expected_http_code, entry.result.response_http_code});
         }
 
         if(!entry.result.response_match) {
-            debug("Match requirement '{s}' was not successful\n", .{entry.expected_response_regex.constSlice()});
+            Console.red("Fault: Match requirement '{s}' was not successful\n", .{entry.expected_response_regex.constSlice()});
         }
     }
 
     if(!conclusion or args.verbose or args.show_response_data) {
-        debug("Response (up to 1024KB):\n{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024*1024)});
+        Console.bold("Response (up to 1024KB):\n", .{});
+        debug("{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024*1024)});
     }
 
     if(!conclusion) return error.TestFailed;

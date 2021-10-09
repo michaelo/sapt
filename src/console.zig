@@ -14,7 +14,7 @@ const std = @import("std");
 const print = std.debug.print;
 const os = @import("builtin").target.os;
 
-const Console = struct {
+pub const Console = struct {
 
     pub fn reset() void {
         const stdout = std.io.getStdOut().writer();
@@ -51,6 +51,15 @@ const Console = struct {
     }
 
     pub fn green(comptime fmt:[]const u8, args: anytype) void {
+        const stdout = std.io.getStdOut().writer();
+        var ttyconf = std.debug.detectTTYConfig();
+
+        ttyconf.setColor(stdout, .Green);
+        stdout.print(fmt, args) catch {};
+        ttyconf.setColor(stdout, .Reset);
+    }
+
+    pub fn bold(comptime fmt:[]const u8, args: anytype) void {
         const stdout = std.io.getStdOut().writer();
         var ttyconf = std.debug.detectTTYConfig();
 
