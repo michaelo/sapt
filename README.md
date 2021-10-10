@@ -359,9 +359,9 @@ TODO, somewhat ordered:
     * Playbooks might support including entire tests directly in the playbook. See exploration in docs/ARCHITECTURE.md
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
-* Support/use coloring for improved output - implement as a separate output-module which takes platform into account for compile-time checks to support VT-100 vs regular Windows CMD. Or just go full VT-100 as it seems later versions of Windows now supports this?
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
 * TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
+* TBD: Shall we support "repeats" in test-files as well? Not only playbooks.
 * Support handling encrypted variables?
 * Support HTTP follow?
 * Actively limit the set of protocols we allow?
@@ -369,7 +369,6 @@ TODO, somewhat ordered:
 * Dev: Test feature flags based on comptime-parsing a feature-file
 * Support list of curl-commands as alternative output?
 * Performant, light-weight GUI (optional)? Plotting performance for stress tests and such.
-* Support parallel requests? Both for general perceived performance as well as for stress-tests (low pri)
 * Support response-time as test-prereq? Perhaps in playlist (low pri)
 
 

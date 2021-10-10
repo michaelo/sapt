@@ -63,7 +63,7 @@ pub const Console = struct {
         const stdout = std.io.getStdOut().writer();
         var ttyconf = std.debug.detectTTYConfig();
 
-        ttyconf.setColor(stdout, .Green);
+        ttyconf.setColor(stdout, .Bold);
         stdout.print(fmt, args) catch {};
         ttyconf.setColor(stdout, .Reset);
     }

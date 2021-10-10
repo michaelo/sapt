@@ -20,4 +20,4 @@ EXTRACTED_ENTRY=()
 
 # Another inline-test
 > GET https://api.warnme.no/api/stats
-< 200
+< 204

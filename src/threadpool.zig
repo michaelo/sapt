@@ -50,7 +50,7 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
 
         /// Not thread safe, must lock outside
         fn takeWork(self: *Self) !PayloadType {
-            // TOdO: Lock + make circular buffer?
+            // TODO: Lock + make circular buffer?
             // const held = self.work_mutex.acquire();
             // defer held.release();
 

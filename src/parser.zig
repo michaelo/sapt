@@ -60,7 +60,6 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     // Name is set based on file name - i.e: not handled here
     // Tokenize by line ending. Check for first char being > and < to determine sections, then do section-specific parsing.
     var state = ParseState.Init;
-    // TODO: Check for any \r\n in data, if so split by that, otherwise \n
     var it = std.mem.split(u8, data, io.getLineEnding(data));
     while (it.next()) |line| {
         // TODO: Refactor. State-names are confusing.
@@ -162,7 +161,6 @@ test "parseContents extracts to variables" {
 }
 
 /// buffer must be big enough to store the expanded variables. TBD: Manage on heap?
-// TODO: Pass inn proper kvstore instead of []KeyValuePair
 pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), variables: *kvstore.KvStore) !void {
     if (buffer.slice().len == 0) return;
 
@@ -351,7 +349,7 @@ fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
         }
     }
 
-    return errors.ParseError; // TODO: Better error
+    return errors.NoSuchFunction;
 }
 
 test "getFunction" {
@@ -406,7 +404,8 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
             try function(func_arg, &func_buf);
 
             buffer.replaceRange(pair.start, pair_len, func_buf.slice()) catch {
-                return errors.ParseError; // TODO: Need more errors
+                // .Overflow
+                return errors.BufferTooSmall;
             };
             end_delta = @intCast(i32, func_buf.slice().len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
         } else {
@@ -414,7 +413,7 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
                 var value_len = value.len;
                 end_delta = @intCast(i32, value_len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
                 buffer.replaceRange(pair.start, pair_len, value) catch {
-                    return errors.ParseError; // TODO: Need more errors
+                    return errors.BufferTooSmall;
                 };
             } else {
                 // debug("Could not find variable: '{s}'\n", .{key});
@@ -444,7 +443,6 @@ test "bracketparser" {
     try variables.add("var3", "woop");
     // var functions = [_]Pair{};
 
-    // TODO: How to detect functions... ()? Or <known keyword>()?
     var pairs = try findAllVariables(str.buffer.len, MAX_VARIABLES, &str);
     try expandVariables(str.buffer.len, MAX_VARIABLES, &str, &pairs, &variables);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var1}}") == null);
@@ -491,7 +489,6 @@ test "parseContents shall extract payload" {
     ;
 
     try parseContents(data, &entry);
-    // TODO: Should we trim trailing newline of payload?
     try testing.expectEqualStrings("Payload goes here\nand here", entry.payload.slice());
 }
 
@@ -561,7 +558,6 @@ pub const PlaybookSegment = struct {
     line_start: u64,
     segment_type:PlaybookSegmentType = .Unknown,
     slice: []const u8 = undefined, // Slice into raw buffer
-    // TODO: add run-spec for e.g. test-repetitions
     meta: SegmentMetadata = undefined,
 };
 
@@ -581,8 +577,6 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
         switch(line[0]) {
             '@' => {
                 // Got file inclusion segment
-                // TODO: it doesn't necessarily end with the ext - it may containt runtime-specs as well (e.g. repetitions)
-                //       TBD: imlement non-space separator? e.g. '*'? 
                 var sub_it = std.mem.split(u8, line[1..], "*");
                 var path = std.mem.trim(u8, sub_it.next().?, " "); // expected to be there, otherwise error
 
@@ -850,7 +844,6 @@ const buf_complex_playbook_working_example =
     \\< 200
     ;
 
-// TODO: Refactor this playbook-processing-implementation to be used from main
 test "parse super complex playbook into proper data" {
     var segments = main.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf_complex_playbook_working_example, segments.unusedCapacitySlice()));
@@ -879,14 +872,6 @@ test "parse super complex playbook into proper data" {
 
                 var entry = Entry{};
                 try parseContents(buf.constSlice(), &entry); 
-
-                // processEntryMain(&entry, parsed_args, buf.constSlice()) catch |e| {
-                //     // TODO: Switch on e and print more helpful error messages. Also: revise and provide better errors in inner functions 
-                //     debug("ERROR: Got error: {s}\n", .{e});
-                //     num_failed += 1;
-                //     continue;
-                // };
-
             },
             .TestRaw => {
                 // Parse directly
@@ -896,14 +881,6 @@ test "parse super complex playbook into proper data" {
                 
                 var entry = Entry{};
                 try parseContents(buf.constSlice(), &entry); 
-
-                // processEntryMain(&entry, parsed_args, buf.constSlice()) catch |e| {
-                //     // TODO: Switch on e and print more helpful error messages. Also: revise and provide better errors in inner functions 
-                //     debug("ERROR: Got error: {s}\n", .{e});
-                //     num_failed += 1;
-                //     continue;
-                // };
-
             },
             .EnvInclude => {
                 // Load from file and parse

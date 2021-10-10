@@ -1,14 +1,11 @@
 // TODO:
 // * Clean up types wrt to BoundedArray-variants used for files, lists of files etc.
 //   * Anything string-related; we can probably assume u8 for any custom functions at least
-// * Revise all errors and error-propagation
 // * Factor out common functions, ensure sets of functions+tests are colocated
 // * Determine design/strategy for handling .env-files
-// * Implement support for env-variables in variable-substitutions
 // * Implement some common, usable functions for expression-substition - e.g. base64-encode
 // * Add test-files to stresstest the parser wrt to parse errors, overflows etc
 // * Establish how to proper handle C-style strings wrt to curl-interop
-// * Implement basic playbook-support?
 // 
 const std = @import("std");
 
@@ -45,6 +42,9 @@ pub const errors = error {
     ParseErrorHeaderEntry,
     ParseErrorExtractionEntry,
     ParseErrorInputPayload,
+
+    NoSuchFunction,
+    BufferTooSmall,
 };
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
@@ -147,7 +147,10 @@ pub const Entry = struct {
     expected_response_regex: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
     extraction_entries: std.BoundedArray(ExtractionEntry,32) = initBoundedArray(ExtractionEntry, 32),
     // TODO: Separate out the result? Might be useful especially for the multithread-handling
+    repeats: usize = 1,
     result: struct {
+        num_fails: usize = 0, // Will increase for each failed attempt, relates to "repeats"
+        conclusion: bool = false,
         response_http_code: u64 = 0,
         response_match: bool = false,
         response_first_1mb: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
@@ -268,12 +271,12 @@ fn processEntry(entry: *Entry, args: AppArguments) !void {
 
     entry.result.response_http_code = http_code;
 
-    // TODO: Replace str-match with proper regexp handling
     try entry.result.response_first_1mb.resize(0);
     try entry.result.response_first_1mb.appendSlice(sliceUpTo(u8, response_buffer.items, 0, entry.result.response_first_1mb.capacity()));
 }
 
-fn evaluateEntryResult(entry: *Entry) bool {
+// TODO: Rename to better communicate intent, or provide a better response than bool
+fn isEntrySuccessful(entry: *Entry) bool {
     if(entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, entry.result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
         entry.result.response_match = false;
         return false;
@@ -297,7 +300,7 @@ const ProcessStatistics = struct {
     time_avg: i64 = undefined,
 };
 
-// Can possibly deprecate this and call directly from the location where it's done. Currently bundled for simplified error handling
+// Process entry and evaluate results. Returns error-type in case of either parse error, process error or evaluation error
 fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats: u32, stats: *ProcessStatistics) !void {
     try parser.parseContents(buf, entry);
 
@@ -319,6 +322,12 @@ fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats:
             pub fn worker(self: *Self) void {
                 var entry_time_start = std.time.milliTimestamp();
                 processEntry(self.entry, self.args.*) catch {};
+                if(!isEntrySuccessful(self.entry)) {
+                    self.entry.result.num_fails += 1;
+                    self.entry.result.conclusion = false;
+                } else {
+                    self.entry.result.conclusion = true;
+                }
                 var entry_time = std.time.milliTimestamp() - entry_time_start;
                 self.stats.time_max = std.math.max(entry_time, self.stats.time_max);
                 self.stats.time_min = std.math.min(entry_time, self.stats.time_min);
@@ -347,10 +356,15 @@ fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats:
         while(i<repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
             try processEntry(entry, args);
+            if(!isEntrySuccessful(entry)) {
+                entry.result.num_fails += 1;
+                entry.result.conclusion = false;
+            } else {
+                entry.result.conclusion = true;
+            }
             var entry_time = std.time.milliTimestamp() - entry_time_start;
             stats.time_max = std.math.max(entry_time, stats.time_max);
             stats.time_min = std.math.min(entry_time, stats.time_min);
-
         }
         stats.time_total = std.time.milliTimestamp() - time_total_start;
 
@@ -366,8 +380,8 @@ fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
             // Got match
             try store.add(v.name.constSlice(), expression_result.result);
         } else {
-            // TODO: Should be error?
             Console.red("Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
+            return error.UnableToExtractExtractionEntry;
         }
     }
 }
@@ -377,39 +391,46 @@ fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
 fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32) !void {
     var entry: Entry = .{};
     _ = input_vars;
-
-    var conclusion = false;
+    entry.repeats = repeats;
 
     // Do
-    // TODO: Handle repeats?
     var stats: ProcessStatistics = .{};
-    // TODO: handle errors differently for repeats and nots.
-    if(processEntryMain(&entry, args, entry_buf, repeats, &stats)) {
-        conclusion = evaluateEntryResult(&entry);
-    } else |err| {
+    processEntryMain(&entry, args, entry_buf, repeats, &stats) catch |err| {
         // TODO: Switch the errors and give helpful output
         Console.red("{d}/{d}: {s:<64}            : Process error {s}\n", .{idx, total, entry_name, err});
         return error.CouldNotProcessEntry;
-    }
+    };
 
+    var conclusion = entry.result.conclusion;
     // Evaluate results
-    var result_string = if(conclusion) "OK" else "ERROR";
+    // var result_string = if(conclusion) "OK" else "ERROR";
 
     // Output neat and tidy output, respectiong args .silent, .data and .verbose
-    // TODO: Add VT100 colors
-    if (conclusion) {
-        Console.green("{d}/{d}: {s:<64}            : {s} ({d})\n", .{idx, total, entry_name, result_string, entry.result.response_http_code});
-    } else {
-        Console.red("{d}/{d}: {s:<64}            : {s} ({d})\n", .{idx, total, entry_name, result_string, entry.result.response_http_code});
-    }
-    if(repeats == 1) {
-        Console.grey("  time: {}ms\n", .{stats.time_total});
-    } else {
-        Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
+    if (conclusion) { // Success
+        Console.green("{d}/{d}: {s:<64}            : OK (HTTP {d} - {s})\n", .{idx, total, entry_name, entry.result.response_http_code, httpCodeToString(entry.result.response_http_code)});
+
+        if(repeats == 1) {
+            Console.grey("  time: {}ms\n", .{stats.time_total});
+        } else {
+            Console.grey("  {} iterations. {} OK, {} Error\n", .{repeats, repeats - entry.result.num_fails, entry.result.num_fails});
+            Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
+        }
+
+    } else { // Errors
+        Console.red("{d}/{d}: {s:<64}            : ERROR (HTTP {d} - {s})\n", .{idx, total, entry_name, entry.result.response_http_code, httpCodeToString(entry.result.response_http_code)});
+
+        if(repeats == 1) {
+            Console.grey("  {} iterations. {} OK, {} Error\n", .{repeats, repeats - entry.result.num_fails, entry.result.num_fails});
+            Console.grey("  time: {}ms\n", .{stats.time_total});
+        } else {
+            Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
+        }
+
     }
 
     if (conclusion) {
         // No need to extract if not successful
+        // TODO: Is failure to extract an failure to the test? I'd say yes.
         try extractExtractionEntries(entry, extracted_vars);
 
         // Print all stored variables
@@ -425,7 +446,7 @@ fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, 
         // num_failed += 1;
         Console.plain("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
         if(entry.result.response_http_code != entry.expected_http_code) {
-            Console.red("Fault: Expected HTTP {d}, got {d}\n", .{entry.expected_http_code, entry.result.response_http_code});
+            Console.red("Fault: Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{entry.expected_http_code, httpCodeToString(entry.expected_http_code), entry.result.response_http_code, httpCodeToString(entry.result.response_http_code)});
         }
 
         if(!entry.result.response_match) {
@@ -642,4 +663,77 @@ test "envFileToKvStore" {
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
     return std.BoundedArray(T, capacity){.buffer=undefined};
+}
+
+fn httpCodeToString(code: u64) []const u8 {
+    return switch(code) {
+        100 => "Continue",
+        101 => "Switching protocols",
+        102 => "Processing",
+        103 => "Early Hints",
+
+        200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
+        203 => "Non-Authoritative Information",
+        204 => "No Content",
+        205 => "Reset Content",
+        206 => "Partial Content",
+        207 => "Multi-Status",
+        208 => "Already Reported",
+        226 => "IM Used",
+
+        300 => "Multiple Choices",
+        301 => "Moved Permanently",
+        302 => "Found (Previously \"Moved Temporarily\")",
+        303 => "See Other",
+        304 => "Not Modified",
+        305 => "Use Proxy",
+        306 => "Switch Proxy",
+        307 => "Temporary Redirect",
+        308 => "Permanent Redirect",
+
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        402 => "Payment Required",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        406 => "Not Acceptable",
+        407 => "Proxy Authentication Required",
+        408 => "Request Timeout",
+        409 => "Conflict",
+        410 => "Gone",
+        411 => "Length Required",
+        412 => "Precondition Failed",
+        413 => "Payload Too Large",
+        414 => "URI Too Long",
+        415 => "Unsupported Media Type",
+        416 => "Range Not Satisfiable",
+        417 => "Expectation Failed",
+        418 => "I'm a Teapot",
+        421 => "Misdirected Request",
+        422 => "Unprocessable Entity",
+        423 => "Locked",
+        424 => "Failed Dependency",
+        425 => "Too Early",
+        426 => "Upgrade Required",
+        428 => "Precondition Required",
+        429 => "Too Many Requests",
+        431 => "Request Header Fields Too Large",
+        451 => "Unavailable For Legal Reasons",
+
+        500 => "Internal Server Error",
+        501 => "Not Implemented",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        505 => "HTTP Version Not Supported",
+        506 => "Variant Also Negotiates",
+        507 => "Insufficient Storage",
+        508 => "Loop Detected",
+        510 => "Not Extended",
+        511 => "Network Authentication Required",
+        else => "", // TBD: fail, return empty, or e.g. "UNKNOWN HTTP CODE"?
+    };
 }
