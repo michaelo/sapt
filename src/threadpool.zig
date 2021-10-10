@@ -124,8 +124,6 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
 }
 
 
-
-
 test "threadpool basic implementation" {
     const MyPayloadResult = struct {
         total: u64 = 0,

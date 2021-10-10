@@ -78,8 +78,9 @@ pub const Console = struct {
 
 test "Console" {
     const c = Console;
-    c.plain("plain\n", .{});
-    c.grey("grey\n", .{});
-    c.red("red\n", .{});
-    c.green("green\n", .{});
+    c.plain("Console.plain()\n", .{});
+    c.grey("Console.grey()\n", .{});
+    c.red("Console.red()\n", .{});
+    c.green("Console.green()\n", .{});
+    c.bold("Console.bold()\n", .{});
 }

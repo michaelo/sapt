@@ -362,7 +362,7 @@ test "getFunction" {
     try testing.expectEqualStrings("", buf.slice());
 
     try buf.resize(0);
-    try testing.expectError(errors.ParseError, getFunction("nosuchfunction"));
+    try testing.expectError(errors.NoSuchFunction, getFunction("nosuchfunction"));
 
     try (try getFunction("myfunc"))("mydata", &buf);
     try testing.expectEqualStrings("mydata", buf.slice());
@@ -816,82 +816,4 @@ test "parse super complex playbook" {
     try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(4).segment_type);
     try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(5).segment_type);
     try testing.expectEqual(PlaybookSegmentType.TestRaw, segments.get(6).segment_type);
-}
-
-const buf_complex_playbook_working_example =
-    \\# Load env from file
-    \\@testdata/01-warnme/.env
-    \\# Define env in-file
-    \\MY_ENV=Woop
-    \\
-    \\# Refer to external test
-    \\@testdata/01-warnme/01-warnme-stats.pi
-    \\
-    \\# Refer to external test with repeats
-    \\@testdata/01-warnme/01-warnme-status-ok.pi * 50
-    \\
-    \\# Inline-test 1
-    \\> GET https://api.warnme.no/api/stats
-    \\< 200
-    \\# Store entire response:
-    \\EXTRACTED_ENTRY=()
-    \\
-    \\# Refer to external test inbetween inlines
-    \\@testdata/01-warnme/01-warnme-status-ok.pi * 50
-    \\
-    \\# Another inline-test
-    \\> GET https://api.warnme.no/api/stats
-    \\< 200
-    ;
-
-test "parse super complex playbook into proper data" {
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
-    try segments.resize(parsePlaybook(buf_complex_playbook_working_example, segments.unusedCapacitySlice()));
-
-    var buf = main.initBoundedArray(u8, 1024*1024);
-    var extracted_vars: kvstore.KvStore = .{};
-    var input_vars: kvstore.KvStore = .{};
-
-    // var num_processed: u64 = 0;
-    var num_failed: u64 = 0;
-    // Pass through each item and process according to type
-    for(segments.constSlice()) |segment| {
-        try buf.resize(0);
-
-        switch(segment.segment_type) {
-            .Unknown => { unreachable; },
-            .TestInclude => {
-                // Load from file and parse
-                io.readFile(u8, buf.buffer.len, segment.slice, &buf) catch {
-                    debug("ERROR: Could not read file: {s}\n", .{segment.slice});
-                    num_failed += 1;
-                    continue;
-                };
-                expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
-                expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
-
-                var entry = Entry{};
-                try parseContents(buf.constSlice(), &entry); 
-            },
-            .TestRaw => {
-                // Parse directly
-                try buf.appendSlice(segment.slice);
-                expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
-                expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
-                
-                var entry = Entry{};
-                try parseContents(buf.constSlice(), &entry); 
-            },
-            .EnvInclude => {
-                // Load from file and parse
-                debug("Attempt to load .env-file: '{s}'\n", .{segment.slice});
-                try input_vars.addFromOther((try main.envFileToKvStore(segment.slice)), .Fail);
-            },
-            .EnvRaw => {
-                // Parse directly
-                try input_vars.addFromBuffer(segment.slice);
-            }
-        }
-        // debug("{d}: {s}: {s}\n", .{idx, segment.segment_type, segment.slice});
-    }
 }
