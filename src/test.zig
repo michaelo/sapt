@@ -7,4 +7,7 @@ test "link" {
     _ = @import("io.zig");
     _ = @import("console.zig");
     _ = @import("argparse.zig");
+    _ = @import("types.zig");
+    _ = @import("utils.zig");
+    _ = @import("httpclient.zig");
 }

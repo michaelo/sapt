@@ -3,9 +3,11 @@ const debug = std.debug.print;
 const testing = std.testing;
 const fs = std.fs;
 const main = @import("main.zig");
+const utils = @import("utils.zig");
 const config = @import("config.zig");
 const AppArguments = main.AppArguments;
 const FilePathEntry = main.FilePathEntry;
+
 
 pub fn printHelp(full: bool) void {
     debug(
@@ -201,7 +203,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                         // TODO: Ignore .env and non-.pi files here?
                         // TODO: If we shall support .env-files pr folder/suite, then we will perhaps need to keep track of "suites" internally as well?
 
-                        var item = main.initBoundedArray(u8, config.MAX_PATH_LEN);
+                        var item = utils.initBoundedArray(u8, config.MAX_PATH_LEN);
                         try item.appendSlice(file.constSlice());
                         try item.appendSlice("/");
                         try item.appendSlice(a_path.name);
@@ -239,7 +241,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
 }
 
 test "processInputFileArguments" {
-    var files: std.BoundedArray(FilePathEntry, 128) = main.initBoundedArray(FilePathEntry, 128);
+    var files: std.BoundedArray(FilePathEntry, 128) = utils.initBoundedArray(FilePathEntry, 128);
     try files.append(try FilePathEntry.fromSlice("testdata/01-warnme"));
 
     try processInputFileArguments(128, &files);

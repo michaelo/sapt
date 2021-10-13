@@ -1,7 +1,6 @@
 // TODO:
 // * Clean up types wrt to BoundedArray-variants used for files, lists of files etc.
 //   * Anything string-related; we can probably assume u8 for any custom functions at least
-// * Factor out common functions, ensure sets of functions+tests are colocated
 // * Determine design/strategy for handling .env-files
 // * Establish how to proper handle C-style strings wrt to curl-interop
 // 
@@ -23,11 +22,17 @@ const kvstore = @import("kvstore.zig");
 const parser = @import("parser.zig");
 const config = @import("config.zig");
 const threadpool = @import("threadpool.zig");
+const utils = @import("utils.zig");
+const httpclient = @import("httpclient.zig");
+
 const Console = @import("console.zig").Console;
 
-const cURL = @cImport({
-    @cInclude("curl/curl.h");
-});
+const types = @import("types.zig");
+const HttpMethod = types.HttpMethod;
+const HttpHeader = types.HttpHeader;
+const ExtractionEntry = types.ExtractionEntry;
+
+const initBoundedArray = utils.initBoundedArray;
 
 pub const errors = error {
     Ok,
@@ -48,91 +53,6 @@ pub const errors = error {
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     debug(format, args);
     std.process.exit(1); // TODO: Introduce several error codes?
-}
-
-pub const HttpMethod = enum {
-    Get,
-    Post,
-    Put,
-    Delete,
-    pub fn string(self: HttpMethod) [*]const u8 {
-        return switch(self) {
-            HttpMethod.Get => "GET",
-            HttpMethod.Post => "POST",
-            HttpMethod.Put => "PUT",
-            HttpMethod.Delete => "DELETE"
-        };
-    }
-    pub fn create(raw: []const u8) !HttpMethod {
-        if(std.mem.eql(u8, raw, "GET")) {
-            return HttpMethod.Get;
-        } else if(std.mem.eql(u8, raw, "POST")) {
-            return HttpMethod.Post;
-        } else if(std.mem.eql(u8, raw, "PUT")) {
-            return HttpMethod.Put;
-        } else if(std.mem.eql(u8, raw, "DELETE")) {
-            return HttpMethod.Delete;
-        } else {
-            return error.NoSuchHttpMethod;
-        }
-    }
-};
-
-test "HttpMethod.create()" {
-    try testing.expect((try HttpMethod.create("GET")) == HttpMethod.Get);
-    try testing.expect((try HttpMethod.create("POST")) == HttpMethod.Post);
-    try testing.expect((try HttpMethod.create("PUT")) == HttpMethod.Put);
-    try testing.expect((try HttpMethod.create("DELETE")) == HttpMethod.Delete);
-    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create("BLAH"));
-    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create(""));
-    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create(" GET"));
-}
-
-pub const HttpHeader = struct {
-    const max_value_len = 8*1024;
-
-    name: std.BoundedArray(u8,256),
-    value: std.BoundedArray(u8,max_value_len),
-    pub fn create(name: []const u8, value: []const u8) !HttpHeader {
-        return HttpHeader {
-            .name = std.BoundedArray(u8,256).fromSlice(std.mem.trim(u8, name, " ")) catch { return errors.ParseError; },
-            .value = std.BoundedArray(u8,max_value_len).fromSlice(std.mem.trim(u8, value, " ")) catch { return errors.ParseError; },
-        };
-    }
-
-    pub fn render(self: *HttpHeader, comptime capacity: usize, out: *std.BoundedArray(u8, capacity)) !void {
-        try out.appendSlice(self.name.slice());
-        try out.appendSlice(": ");
-        try out.appendSlice(self.value.slice());
-    }
-};
-
-test "HttpHeader.render" {
-    var mybuf = initBoundedArray(u8, 2048);
-    var header = try HttpHeader.create("Accept", "application/xml");
-    
-    try header.render(mybuf.buffer.len, &mybuf);
-    try testing.expectEqualStrings("Accept: application/xml", mybuf.slice());
-}
-
-
-pub const ExtractionEntry = struct {
-    name: std.BoundedArray(u8,256),
-    expression: std.BoundedArray(u8,1024),
-    pub fn create(name: []const u8, value: []const u8) !ExtractionEntry {
-        return ExtractionEntry {
-            .name = std.BoundedArray(u8,256).fromSlice(std.mem.trim(u8, name, " ")) catch { return errors.ParseError; },
-            .expression = std.BoundedArray(u8,1024).fromSlice(std.mem.trim(u8, value, " ")) catch { return errors.ParseError; },
-        };
-    }
-};
-
-/// Att! This adds a terminating zero at current .slice().len TODO: Ensure there's space
-fn boundedArrayAsCstr(comptime capacity: usize, array: *std.BoundedArray(u8, capacity)) [*]u8 {
-    if(array.slice().len >= array.capacity()) unreachable;
-
-    array.buffer[array.slice().len] = 0;
-    return array.slice().ptr;
 }
 
 pub const Entry = struct {
@@ -184,98 +104,6 @@ pub const AppArguments = struct {
     files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128),
 };
 
-fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
-    var buffer = @intToPtr(*std.ArrayList(u8), @ptrToInt(user_data));
-    var typed_data = @intToPtr([*]u8, @ptrToInt(data));
-    buffer.appendSlice(typed_data[0 .. nmemb * size]) catch return 0;
-    return nmemb * size;
-}
-
-/// Primary worker function performing the request and handling the response
-/// TODO: Factor out a pure cURL-handler?
-fn processEntry(entry: *Entry, args: AppArguments, result: *EntryResult) !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    defer arena.deinit();
-    var allocator = &arena.allocator;
-
-    //////////////////////////////
-    // Init / generic setup
-    //////////////////////////////
-    const handle = cURL.curl_easy_init() orelse return error.CURLHandleInitFailed;
-    defer cURL.curl_easy_cleanup(handle);
-
-    // TODO: Shall we get rid of heap? Can use the 1MB-buffer in the entry directly...
-    var response_buffer = std.ArrayList(u8).init(allocator);
-    defer response_buffer.deinit();
-
-    ///////////////////////
-    // Setup curl options
-    ///////////////////////
-
-    // Set HTTP method
-    if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_CUSTOMREQUEST, entry.method.string()) != cURL.CURLE_OK)
-        return error.CouldNotSetRequestMethod;
-
-    // Set URL
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, boundedArrayAsCstr(entry.url.buffer.len, &entry.url)) != cURL.CURLE_OK)
-        return error.CouldNotSetURL;
-
-    // Set Payload (if given)
-    if(entry.method == .Post or entry.method == .Put or entry.payload.slice().len > 0) {
-        if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDSIZE, entry.payload.slice().len) != cURL.CURLE_OK)
-            return error.CouldNotSetPostDataSize;
-        if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload)) != cURL.CURLE_OK)
-            return error.CouldNotSetPostData;
-    }
-
-    // Debug
-    if(args.verbose) {
-        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
-            return error.CouldNotSetVerbose;
-    }
-
-    // Pass headers
-    var list: ?*cURL.curl_slist = null;
-    defer cURL.curl_slist_free_all(list);
-    
-    var header_buf = initBoundedArray(u8, HttpHeader.max_value_len);
-    for(entry.headers.slice()) |*header| {
-        try header_buf.resize(0);
-        try header.render(header_buf.buffer.len, &header_buf);
-        list = cURL.curl_slist_append(list, boundedArrayAsCstr(header_buf.buffer.len, &header_buf));
-    }
-    
-    if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_HTTPHEADER, list) != cURL.CURLE_OK)
-        return error.CouldNotSetHeaders;
-
-    //////////////////////
-    // Execute
-    //////////////////////
-    // set write function callbacks
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToArrayListCallback) != cURL.CURLE_OK)
-        return error.CouldNotSetWriteCallback;
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_buffer) != cURL.CURLE_OK)
-        return error.CouldNotSetWriteCallback;
-
-
-    // TODO: Timer start
-    // Perform
-    if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
-        return error.FailedToPerformRequest;
-    // TODO: Timer end
-
-    ////////////////////////
-    // Handle results
-    ////////////////////////
-    var http_code: u64 = 0;
-    if(cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code) != cURL.CURLE_OK)
-        return error.CouldNewGetResponseCode;
-
-    result.response_http_code = http_code;
-
-    try result.response_first_1mb.resize(0);
-    try result.response_first_1mb.appendSlice(sliceUpTo(u8, response_buffer.items, 0, result.response_first_1mb.capacity()));
-}
 
 fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
     if(entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
@@ -287,11 +115,6 @@ fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
     if(entry.expected_http_code != 0 and entry.expected_http_code != result.response_http_code) return false;
 
     return true;
-}
-
-/// UTILITY: Returns a slice from <from> up to <to> or slice.len
-fn sliceUpTo(comptime T: type, slice: []T, from: usize, to: usize) []T {
-    return slice[from..std.math.min(slice.len, to)];
 }
 
 const ProcessStatistics = struct {
@@ -327,7 +150,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
 
             pub fn worker(self: *Self) void {
                 var entry_time_start = std.time.milliTimestamp();
-                if(processEntry(self.entry, self.args.*, self.result)) {
+                if(httpclient.processEntry(self.entry, self.args.*, self.result)) {
                     // self.result.response_first_1mb = tmp_result.response_first_1mb;
                     // self.result.response_http_code = tmp_result.response_http_code;
                     if(!isEntrySuccessful(self.entry, self.result)) {
@@ -370,7 +193,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
         var i: usize=0;
         while(i<repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
-            if(processEntry(entry, args, result)) {
+            if(httpclient.processEntry(entry, args, result)) {
                 // result.response_first_1mb = tmp_result.response_first_1mb;
                 // result.response_http_code = tmp_result.response_http_code;
                 if(!isEntrySuccessful(entry, result)) {
@@ -430,9 +253,9 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
     // Output neat and tidy output, respectiong args .silent, .data and .verbose
     if (conclusion) { // Success
-        Console.green("{d}/{d}: {s:<64}            : OK (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpCodeToString(test_context.result.response_http_code)});
+        Console.green("{d}/{d}: {s:<64}            : OK (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code)});
     } else { // Errors
-        Console.red("{d}/{d}: {s:<64}            : ERROR (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpCodeToString(test_context.result.response_http_code)});
+        Console.red("{d}/{d}: {s:<64}            : ERROR (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code)});
     }
 
     // Stats
@@ -461,7 +284,7 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
         // num_failed += 1;
         Console.plain("{s} {s:<64}\n", .{test_context.entry.method, test_context.entry.url.slice()});
         if(test_context.result.response_http_code != test_context.entry.expected_http_code) {
-            Console.red("Fault: Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{test_context.entry.expected_http_code, httpCodeToString(test_context.entry.expected_http_code), test_context.result.response_http_code, httpCodeToString(test_context.result.response_http_code)});
+            Console.red("Fault: Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{test_context.entry.expected_http_code, httpclient.httpCodeToString(test_context.entry.expected_http_code), test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code)});
         }
 
         if(!test_context.result.response_match) {
@@ -471,7 +294,7 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
     if(!conclusion or args.verbose or args.show_response_data) {
         Console.bold("Response (up to 1024KB):\n", .{});
-        debug("{s}\n\n", .{sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024*1024)});
+        debug("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024*1024)});
     }
 
     if(!conclusion) return error.TestFailed;
@@ -595,9 +418,8 @@ const TestContext = struct {
 };
 
 pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
-    if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
-        return error.CURLGlobalInitFailed;
-    defer cURL.curl_global_cleanup();
+    try httpclient.init();
+    defer httpclient.deinit();
 
     // Scrap-buffer to use throughout tests
     var test_context = try allocator.create(TestContext);
@@ -687,82 +509,4 @@ test "envFileToKvStore" {
     try testing.expect(store.count() == 2);
     try testing.expectEqualStrings("value", store.get("key").?);
     try testing.expectEqualStrings("dabba", store.get("abba").?);
-}
-
-// Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
-pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T,capacity) {
-    return std.BoundedArray(T, capacity){.buffer=undefined};
-}
-
-fn httpCodeToString(code: u64) []const u8 {
-    return switch(code) {
-        100 => "Continue",
-        101 => "Switching protocols",
-        102 => "Processing",
-        103 => "Early Hints",
-
-        200 => "OK",
-        201 => "Created",
-        202 => "Accepted",
-        203 => "Non-Authoritative Information",
-        204 => "No Content",
-        205 => "Reset Content",
-        206 => "Partial Content",
-        207 => "Multi-Status",
-        208 => "Already Reported",
-        226 => "IM Used",
-
-        300 => "Multiple Choices",
-        301 => "Moved Permanently",
-        302 => "Found (Previously \"Moved Temporarily\")",
-        303 => "See Other",
-        304 => "Not Modified",
-        305 => "Use Proxy",
-        306 => "Switch Proxy",
-        307 => "Temporary Redirect",
-        308 => "Permanent Redirect",
-
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        402 => "Payment Required",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        406 => "Not Acceptable",
-        407 => "Proxy Authentication Required",
-        408 => "Request Timeout",
-        409 => "Conflict",
-        410 => "Gone",
-        411 => "Length Required",
-        412 => "Precondition Failed",
-        413 => "Payload Too Large",
-        414 => "URI Too Long",
-        415 => "Unsupported Media Type",
-        416 => "Range Not Satisfiable",
-        417 => "Expectation Failed",
-        418 => "I'm a Teapot",
-        421 => "Misdirected Request",
-        422 => "Unprocessable Entity",
-        423 => "Locked",
-        424 => "Failed Dependency",
-        425 => "Too Early",
-        426 => "Upgrade Required",
-        428 => "Precondition Required",
-        429 => "Too Many Requests",
-        431 => "Request Header Fields Too Large",
-        451 => "Unavailable For Legal Reasons",
-
-        500 => "Internal Server Error",
-        501 => "Not Implemented",
-        502 => "Bad Gateway",
-        503 => "Service Unavailable",
-        504 => "Gateway Timeout",
-        505 => "HTTP Version Not Supported",
-        506 => "Variant Also Negotiates",
-        507 => "Insufficient Storage",
-        508 => "Loop Detected",
-        510 => "Not Extended",
-        511 => "Network Authentication Required",
-        else => "", // TBD: fail, return empty, or e.g. "UNKNOWN HTTP CODE"?
-    };
 }

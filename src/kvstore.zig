@@ -2,11 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const io = @import("io.zig");
-
-// Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
-fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T, capacity) {
-    return std.BoundedArray(T, capacity){ .buffer = undefined };
-}
+const utils = @import("utils.zig");
 
 // TODO: Can make generic, especially with regards to capacity
 // pub fn KvStore(comptime KeyType: type, comptime )
@@ -16,8 +12,8 @@ fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray
 // Name suggestion: OrderedWoKvStore?
 pub const KvStore = struct {
     pub const KvStoreEntry = struct {
-        key: std.BoundedArray(u8, 128) = initBoundedArray(u8, 128),
-        value: std.BoundedArray(u8, 8 * 1024) = initBoundedArray(u8, 8 * 1024),
+        key: std.BoundedArray(u8, 128) = utils.initBoundedArray(u8, 128),
+        value: std.BoundedArray(u8, 8 * 1024) = utils.initBoundedArray(u8, 8 * 1024),
         pub fn create(key: []const u8, value: []const u8) !KvStoreEntry {
             return KvStoreEntry{
                 .key = try std.BoundedArray(u8, 128).fromSlice(key),
@@ -26,7 +22,7 @@ pub const KvStore = struct {
         }
     };
 
-    store: std.BoundedArray(KvStoreEntry, 32) = initBoundedArray(KvStoreEntry, 32),
+    store: std.BoundedArray(KvStoreEntry, 32) = utils.initBoundedArray(KvStoreEntry, 32),
 
     pub fn add(self: *KvStore, key: []const u8, value: []const u8) !void {
         // TODO: insert sorted, so we can binary search in get()

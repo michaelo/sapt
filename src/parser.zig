@@ -6,12 +6,14 @@ const main = @import("main.zig");
 const kvstore = @import("kvstore.zig");
 const io = @import("io.zig");
 const config = @import("config.zig");
+const utils = @import("utils.zig");
+const types = @import("types.zig");
 
 const errors = main.errors;
 const Entry = main.Entry;
-const HttpMethod = main.HttpMethod;
-const HttpHeader = main.HttpHeader;
-const ExtractionEntry = main.ExtractionEntry;
+const HttpMethod = types.HttpMethod;
+const HttpHeader = types.HttpHeader;
+const ExtractionEntry = types.ExtractionEntry;
 
 pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     const ParseState = enum {
@@ -228,8 +230,8 @@ const BracketPair = struct {
 };
 
 pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize)) !std.BoundedArray(BracketPair, MaxNumVariables) {
-    var opens: std.BoundedArray(usize, MaxNumVariables) = main.initBoundedArray(usize, MaxNumVariables);
-    var pairs: std.BoundedArray(BracketPair, MaxNumVariables) = main.initBoundedArray(BracketPair, MaxNumVariables);
+    var opens: std.BoundedArray(usize, MaxNumVariables) = utils.initBoundedArray(usize, MaxNumVariables);
+    var pairs: std.BoundedArray(BracketPair, MaxNumVariables) = utils.initBoundedArray(BracketPair, MaxNumVariables);
     var skip_next = false;
 
     for (buffer.slice()[0 .. buffer.slice().len - 1]) |char, i| {
@@ -353,7 +355,7 @@ fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
 }
 
 test "getFunction" {
-    var buf = main.initBoundedArray(u8, 1024);
+    var buf = utils.initBoundedArray(u8, 1024);
     try (try getFunction("woopout"))("doesntmatter", &buf);
     try testing.expectEqualStrings("woop", buf.slice());
 
@@ -400,7 +402,7 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
             var func_key = key[0..std.mem.indexOf(u8, key, "(").?];
             var func_arg = key[std.mem.indexOf(u8, key, "(").? + 1 .. std.mem.indexOf(u8, key, ")").?];
             var function = try getFunction(func_key);
-            var func_buf = main.initBoundedArray(u8, 1024);
+            var func_buf = utils.initBoundedArray(u8, 1024);
             try function(func_arg, &func_buf);
 
             buffer.replaceRange(pair.start, pair_len, func_buf.slice()) catch {
@@ -672,7 +674,7 @@ test "parse playbook single test fileref" {
     \\@some/test.pi
     \\
     ;
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
     try testing.expectEqual(@intCast(usize, 1), segments.len);
@@ -687,7 +689,7 @@ test "parse playbook test filerefs can have repeats" {
     \\@some/test.pi*10
     \\
     ;
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
     try testing.expectEqual(@intCast(usize, 1), segments.len);
@@ -701,7 +703,7 @@ test "parse playbook fileref and envref" {
     \\@some/.env
     \\
     ;
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
     try testing.expectEqual(@intCast(usize, 2), segments.len);
@@ -715,7 +717,7 @@ test "parse playbook single raw var" {
     \\MY_ENV=somevalue
     \\
     ;
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
     try testing.expectEqual(@intCast(usize, 1), segments.len);
@@ -729,7 +731,7 @@ test "parse playbook raw test" {
     \\> GET https://my.service/api
     \\< 200
     ;
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
     try testing.expectEqual(@intCast(usize, 1), segments.len);
@@ -747,7 +749,7 @@ test "parse playbook two raw tests, one with extraction-expressions" {
     \\< 200
     \\RESPONSE=()
     ;
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
 
     try testing.expectEqual(@intCast(usize, 2), segments.len);
@@ -801,7 +803,7 @@ const buf_complex_playbook_example =
     ;
 
 test "parse super complex playbook" {
-    var segments = main.initBoundedArray(PlaybookSegment, 128);
+    var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf_complex_playbook_example, segments.unusedCapacitySlice()));
 
     // for(segments.constSlice()) |segment, idx| {
