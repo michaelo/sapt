@@ -310,15 +310,16 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
 
 fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !void {
     // Load playbook
-    var buf = initBoundedArray(u8, 1024*1024);
+    var buf_playbook = initBoundedArray(u8, 1024*1024); // TODO: this must currently be kept as it is used to look up data from for the segments
+    var buf_test = initBoundedArray(u8, 1024*1024);
 
-    io.readFile(u8, buf.buffer.len, playbook_path, &buf) catch {
+    io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
         debug("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
         return error.ParseError;
     };
 
     var segments = initBoundedArray(parser.PlaybookSegment, 128);
-    try segments.resize(parser.parsePlaybook(buf.constSlice(), segments.unusedCapacitySlice()));
+    try segments.resize(parser.parsePlaybook(buf_playbook.constSlice(), segments.unusedCapacitySlice()));
 
 
     // Iterate over playbook and act according to each type
@@ -328,7 +329,7 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
     const time_start = std.time.milliTimestamp();
     // Pass through each item and process according to type
     for(segments.constSlice()) |segment| {
-        try buf.resize(0);
+        try buf_test.resize(0);
         if(args.verbose) debug("Processing segment type: {s}, line: {d}\n", .{segment.segment_type, segment.line_start});
 
         switch(segment.segment_type) {
@@ -346,7 +347,7 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                     repeats = segment.meta.TestInclude.repeats;
                     if(args.verbose) debug("Processing: {s}\n", .{segment.slice});
                     // Load from file and parse
-                    io.readFile(u8, buf.buffer.len, segment.slice, &buf) catch {
+                    io.readFile(u8, buf_test.buffer.len, segment.slice, &buf_test) catch {
                         debug("ERROR: Could not read file: {s}\n", .{segment.slice});
                         num_failed += 1;
                         continue;
@@ -355,12 +356,12 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                     // debug("Processing: {s}\n", .{"inline test"});
                     // Test raw
                     name_slice = std.fmt.bufPrint(&name_buf, "Inline segment starting at line: {d}", .{segment.line_start}) catch { unreachable; };
-                    try buf.appendSlice(segment.slice);
+                    try buf_test.appendSlice(segment.slice);
                 }
-                parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars) catch {};
-                parser.expandVariablesAndFunctions(buf.buffer.len, &buf, input_vars) catch {};
+                parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, extracted_vars) catch {};
+                parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, input_vars) catch {};
 
-                if(processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf.constSlice(), args, input_vars, extracted_vars, repeats)) {
+                if(processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf_test.constSlice(), args, input_vars, extracted_vars, repeats)) {
                     // OK
                 } else |_| {
                     // debug("Got error: {s}\n", .{err});
