@@ -34,7 +34,7 @@ sapt can take multiple arguments, both files and folders. The entire input-set w
 * suite/03-get-posted-entry.pi
 * suite/04-delete-posted-entry.pi
 
-*Note: playbooks will later provide a way to override this.*
+*Note: playbooks provides a way to override this.*
 
 <!-- 
 Why oh why
@@ -68,7 +68,7 @@ Why oh why
             Me: No worries. Take care! -->
 
 
-Usage: Complex:
+Usage: Complex
 ----------------
 
 Assuming you first have to get an authorization code from an auth-endpoint, which you will need in other tests.
@@ -98,11 +98,9 @@ Let's say you have the following files:
 
 Provided that the auth-endpoint will return something like this:
 
-    {"access_token": "...", "id_token"="", "...", ...}
+    {"access_token": "...", "id_token":"...", "...", ...}
 
 ... the test will then set the id_token-variable, allowing it to be referred in subsequent tests.
-
-*TODO: Implement support for automatically include .env-files if they are found, scoped to the folder in which the reside.*
 
 
 ### Get data from service using data from previous test: myservice/02-get-data.pi
@@ -228,6 +226,10 @@ Due in part to the effort to avoid heap-usage, a set of discrete limitations are
             <td>1024</td>
         </tr>
         <tr>
+            <td>Max repeats for single test</td>
+            <td>1000</td>
+        </tr>
+        <tr>
             <td colspan="2">Test-specific parameters</td>
         </tr>
         <tr>
@@ -331,52 +333,52 @@ Set of variable extraction expressions, optional:
     # Expression shall consists of a string representing the output, with '()' indicating the part to extract
     AUTH_TOKEN="token":"()"
 
-*TODO: Might support more regex-like expressions to control e.g. character groups and such.*
+*TBD: Might support more regex-like expressions to control e.g. character groups and such.*
 
 
 Must fix to be usable AKA pri-TODO:
 -------------
-* Support variables: missing from OS env
-* Output useful errors when it fails (HTTP-code, helpful labels for the most common ones, and the response)
-
+* Indicate position of parse-errors
+* Implement support for automatically include .env-files if they are found, scoped to the folder in which the reside.
+* Playbooks must resolve paths relative to folder of playbook
 
 TODO, somewhat ordered:
 ------------
-* Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS
+* Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * TBD: shall we provide libcurl? If so, make sure to conform to https://curl.se/docs/copyright.html.
 * sapt -h should also provide information about format of test files, and perhaps also playbooks, to be self-contained.
     * Propose:
         * sapt -h test
         * sapt -h playbook
+* Provide better stats for repeats. We currently have min, max and avg time. Some weighted avg or something could be useful.
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
-* Support .env-files or similar to pass in predefined variables: currently only support explicitly passing it through -i=path
-* Allow support for OS-environment variables. Control by flag?
+* TBD: Allow support for OS-environment variables. Control access by flag?
 * Implement support to do step-by-step tests by e.g. requiring user to press enter between each test
 * Provide better granularity for verbosity: e.g. separate between curl-verbose and sapt-verbose
 * Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
-* Support "playbook"-files to define e.g. order and repetitions?
-    * Playbooks shall also support setting variables
-    * Playbooks might support including entire tests directly in the playbook. See exploration in docs/ARCHITECTURE.md
+* Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
+    * Support repeating sequence of actions? E.g. add, check, remove.
+    * TBD: The current time of request - are we sure we're testing the correct segment?
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
-* TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
 * TBD: Shall we support "repeats" in test-files as well? Not only playbooks.
-* Support handling encrypted variables?
 * Support HTTP follow?
 * Actively limit the set of protocols we allow?
 * Finish basic syntax highligh ruleset for the test-files
 * Dev: Test feature flags based on comptime-parsing a feature-file
+
+
+Feature-exploration AKA Maybe-TODO:
+-------------
+* Support handling encrypted variables?
 * Support list of curl-commands as alternative output?
 * Performant, light-weight GUI (optional)? Plotting performance for stress tests and such.
 * Support response-time as test-prereq? Perhaps in playlist (low pri)
-
-
+* TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
 
 
 Thanks / attributions:
 --------
-* libcurl - the workhorse
 * zig - an interesting language of which this project is my first deliverable
-
-
+* libcurl - the workhorse

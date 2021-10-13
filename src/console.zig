@@ -1,18 +1,5 @@
-/// Basic contextual output-handlers supporting console-escape-codes for supported platforms
-/// Each function ends with reset
-/// TODO: Name by color or by semantics? Alternatively both.
-// NO_COLOR env
-// std.debug.detectTTYConfig()
-//
-//  const ttyconf: std.debug.TTY.Config = switch (color) {
-//        .auto => std.debug.detectTTYConfig(),
-//        .on => .escape_codes,
-//        .off => .no_color,
-//    };
-
+/// Basic writer supporting console-escape-codes for supported platforms
 const std = @import("std");
-const print = std.debug.print;
-const os = @import("builtin").target.os;
 
 pub const Console = struct {
 

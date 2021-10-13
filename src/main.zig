@@ -3,8 +3,6 @@
 //   * Anything string-related; we can probably assume u8 for any custom functions at least
 // * Factor out common functions, ensure sets of functions+tests are colocated
 // * Determine design/strategy for handling .env-files
-// * Implement some common, usable functions for expression-substition - e.g. base64-encode
-// * Add test-files to stresstest the parser wrt to parse errors, overflows etc
 // * Establish how to proper handle C-style strings wrt to curl-interop
 // 
 const std = @import("std");
@@ -146,15 +144,17 @@ pub const Entry = struct {
     expected_http_code: u64 = 0, // 0 == don't care
     expected_response_regex: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
     extraction_entries: std.BoundedArray(ExtractionEntry,32) = initBoundedArray(ExtractionEntry, 32),
-    // TODO: Separate out the result? Might be useful especially for the multithread-handling
     repeats: usize = 1,
-    result: struct {
-        num_fails: usize = 0, // Will increase for each failed attempt, relates to "repeats"
-        conclusion: bool = false,
-        response_http_code: u64 = 0,
-        response_match: bool = false,
-        response_first_1mb: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
-    } = .{},
+};
+
+// TODO: Split what is return-data from the processEntry vs what's aggregated results outside?
+pub const EntryResult = struct {
+    num_fails: usize = 0, // Will increase for each failed attempt, relates to "repeats"
+    conclusion: bool = false,
+    response_http_code: u64 = 0,
+    response_match: bool = false,
+    // TODO: Fetch response-length in case it's >1MB?
+    response_first_1mb: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
 };
 
 pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
@@ -193,10 +193,10 @@ fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_dat
 
 /// Primary worker function performing the request and handling the response
 /// TODO: Factor out a pure cURL-handler?
-fn processEntry(entry: *Entry, args: AppArguments) !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    defer arena_state.deinit();
-    var allocator = &arena_state.allocator;
+fn processEntry(entry: *Entry, args: AppArguments, result: *EntryResult) !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    defer arena.deinit();
+    var allocator = &arena.allocator;
 
     //////////////////////////////
     // Init / generic setup
@@ -258,9 +258,11 @@ fn processEntry(entry: *Entry, args: AppArguments) !void {
         return error.CouldNotSetWriteCallback;
 
 
+    // TODO: Timer start
     // Perform
     if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
         return error.FailedToPerformRequest;
+    // TODO: Timer end
 
     ////////////////////////
     // Handle results
@@ -269,21 +271,20 @@ fn processEntry(entry: *Entry, args: AppArguments) !void {
     if(cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code) != cURL.CURLE_OK)
         return error.CouldNewGetResponseCode;
 
-    entry.result.response_http_code = http_code;
+    result.response_http_code = http_code;
 
-    try entry.result.response_first_1mb.resize(0);
-    try entry.result.response_first_1mb.appendSlice(sliceUpTo(u8, response_buffer.items, 0, entry.result.response_first_1mb.capacity()));
+    try result.response_first_1mb.resize(0);
+    try result.response_first_1mb.appendSlice(sliceUpTo(u8, response_buffer.items, 0, result.response_first_1mb.capacity()));
 }
 
-// TODO: Rename to better communicate intent, or provide a better response than bool
-fn isEntrySuccessful(entry: *Entry) bool {
-    if(entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, entry.result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
-        entry.result.response_match = false;
+fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
+    if(entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
+        result.response_match = false;
         return false;
     }
-    entry.result.response_match = true;
+    result.response_match = true;
 
-    if(entry.expected_http_code != 0 and entry.expected_http_code != entry.result.response_http_code) return false;
+    if(entry.expected_http_code != 0 and entry.expected_http_code != result.response_http_code) return false;
 
     return true;
 }
@@ -301,14 +302,18 @@ const ProcessStatistics = struct {
 };
 
 // Process entry and evaluate results. Returns error-type in case of either parse error, process error or evaluation error
-fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats: u32, stats: *ProcessStatistics) !void {
+fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const u8, repeats: u32, stats: *ProcessStatistics) !void {
+    var entry: *Entry = &test_context.entry;
+    var result: *EntryResult = &test_context.result;
+
     try parser.parseContents(buf, entry);
 
-    // TODO: Refactor this to better unify the different call-methods: stats, no stats (remove the possibility?), and multithreaded
+    // TODO: Refactor this to better unify the different call-methods/variants
     stats.time_max = 0;
     stats.time_min = std.math.maxInt(i64);
+
     if(args.multithreaded and repeats > 1) {
-        debug("Starting multithreaded test ({d} threads working total {d} requests)\n", .{try std.Thread.getCpuCount(), repeats});
+        if(args.verbose) debug("Starting multithreaded test ({d} threads working total {d} requests)\n", .{try std.Thread.getCpuCount(), repeats});
 
         // We start naively, by sharing data, although it's not high-performance optimal, but
         // it's a starting point from which we can improve once we've identifed all pitfalls 
@@ -317,16 +322,24 @@ fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats:
             // TODO: Add mutexes
             stats: *ProcessStatistics,
             entry: *Entry,
+            result: *EntryResult,
             args: *const AppArguments,
 
             pub fn worker(self: *Self) void {
                 var entry_time_start = std.time.milliTimestamp();
-                processEntry(self.entry, self.args.*) catch {};
-                if(!isEntrySuccessful(self.entry)) {
-                    self.entry.result.num_fails += 1;
-                    self.entry.result.conclusion = false;
-                } else {
-                    self.entry.result.conclusion = true;
+                if(processEntry(self.entry, self.args.*, self.result)) {
+                    // self.result.response_first_1mb = tmp_result.response_first_1mb;
+                    // self.result.response_http_code = tmp_result.response_http_code;
+                    if(!isEntrySuccessful(self.entry, self.result)) {
+                        self.result.num_fails += 1;
+                        self.result.conclusion = false;
+                    } else {
+                        self.result.conclusion = true;
+                    }
+                } else |_| {
+                    // Error
+                    self.result.num_fails += 1;
+                    self.result.conclusion = false;
                 }
                 var entry_time = std.time.milliTimestamp() - entry_time_start;
                 self.stats.time_max = std.math.max(entry_time, self.stats.time_max);
@@ -344,23 +357,32 @@ fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats:
                 .stats = stats,
                 .entry = entry,
                 .args = &args,
+                .result = result,
             });
         }
 
         try pool.startAndJoin(); // Can fail if unable to spawn thread
         // Evaluate results?
     } else {
+        if(args.verbose) debug("Starting singlethreaded test ({d} requests)\n", .{repeats});
         const time_total_start = std.time.milliTimestamp();
 
         var i: usize=0;
         while(i<repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
-            try processEntry(entry, args);
-            if(!isEntrySuccessful(entry)) {
-                entry.result.num_fails += 1;
-                entry.result.conclusion = false;
-            } else {
-                entry.result.conclusion = true;
+            if(processEntry(entry, args, result)) {
+                // result.response_first_1mb = tmp_result.response_first_1mb;
+                // result.response_http_code = tmp_result.response_http_code;
+                if(!isEntrySuccessful(entry, result)) {
+                    result.num_fails += 1;
+                    result.conclusion = false;
+                } else {
+                    result.conclusion = true;
+                }
+            } else |_| {
+                // Error
+                result.num_fails += 1;
+                result.conclusion = false;
             }
             var entry_time = std.time.milliTimestamp() - entry_time_start;
             stats.time_max = std.math.max(entry_time, stats.time_max);
@@ -373,10 +395,10 @@ fn processEntryMain(entry: *Entry, args: AppArguments, buf: []const u8, repeats:
     stats.time_avg = @divTrunc(stats.time_total, @intCast(i64, repeats));
 }
 
-fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
+fn extractExtractionEntries(entry: Entry, result: EntryResult, store: *kvstore.KvStore) !void {
         // Extract to variables
     for(entry.extraction_entries.constSlice()) |v| {
-        if(parser.expressionExtractor(entry.result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
+        if(parser.expressionExtractor(result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
             // Got match
             try store.add(v.name.constSlice(), expression_result.result);
         } else {
@@ -388,50 +410,43 @@ fn extractExtractionEntries(entry: Entry, store: *kvstore.KvStore) !void {
 
 /// Main do'er to do anything related to orchestrating the execution of the entry, repeats and outputting the results
 /// Common to both regular flow (entries as arguments) and playbooks
-fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32) !void {
-    var entry: Entry = .{};
+fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32) !void {
+    test_context.* = .{}; // Reset
     _ = input_vars;
-    entry.repeats = repeats;
+    test_context.entry.repeats = repeats;
 
     // Do
     var stats: ProcessStatistics = .{};
-    processEntryMain(&entry, args, entry_buf, repeats, &stats) catch |err| {
+    if(args.verbose) debug("processAndEvaluateEntryFromBuf: {s}\n", .{entry_name});
+    
+    processEntryMain(test_context, args, entry_buf, repeats, &stats) catch |err| {
         // TODO: Switch the errors and give helpful output
         Console.red("{d}/{d}: {s:<64}            : Process error {s}\n", .{idx, total, entry_name, err});
         return error.CouldNotProcessEntry;
     };
 
-    var conclusion = entry.result.conclusion;
+    var conclusion = test_context.result.conclusion;
     // Evaluate results
-    // var result_string = if(conclusion) "OK" else "ERROR";
 
     // Output neat and tidy output, respectiong args .silent, .data and .verbose
     if (conclusion) { // Success
-        Console.green("{d}/{d}: {s:<64}            : OK (HTTP {d} - {s})\n", .{idx, total, entry_name, entry.result.response_http_code, httpCodeToString(entry.result.response_http_code)});
-
-        if(repeats == 1) {
-            Console.grey("  time: {}ms\n", .{stats.time_total});
-        } else {
-            Console.grey("  {} iterations. {} OK, {} Error\n", .{repeats, repeats - entry.result.num_fails, entry.result.num_fails});
-            Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
-        }
-
+        Console.green("{d}/{d}: {s:<64}            : OK (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpCodeToString(test_context.result.response_http_code)});
     } else { // Errors
-        Console.red("{d}/{d}: {s:<64}            : ERROR (HTTP {d} - {s})\n", .{idx, total, entry_name, entry.result.response_http_code, httpCodeToString(entry.result.response_http_code)});
+        Console.red("{d}/{d}: {s:<64}            : ERROR (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpCodeToString(test_context.result.response_http_code)});
+    }
 
-        if(repeats == 1) {
-            Console.grey("  {} iterations. {} OK, {} Error\n", .{repeats, repeats - entry.result.num_fails, entry.result.num_fails});
-            Console.grey("  time: {}ms\n", .{stats.time_total});
-        } else {
-            Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
-        }
-
+    // Stats
+    if(repeats == 1) {
+        Console.grey("  time: {}ms\n", .{stats.time_total});
+    } else {
+        Console.grey("  {} iterations. {} OK, {} Error\n", .{repeats, repeats - test_context.result.num_fails, test_context.result.num_fails});
+        Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
     }
 
     if (conclusion) {
         // No need to extract if not successful
         // TODO: Is failure to extract an failure to the test? I'd say yes.
-        try extractExtractionEntries(entry, extracted_vars);
+        try extractExtractionEntries(test_context.entry, test_context.result, extracted_vars);
 
         // Print all stored variables
         if(args.verbose and extracted_vars.store.slice().len > 0) {
@@ -444,19 +459,19 @@ fn processAndEvaluateEntryFromBuf(idx: u64, total: u64, entry_name: []const u8, 
         }
     } else {
         // num_failed += 1;
-        Console.plain("{s} {s:<64}\n", .{entry.method, entry.url.slice()});
-        if(entry.result.response_http_code != entry.expected_http_code) {
-            Console.red("Fault: Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{entry.expected_http_code, httpCodeToString(entry.expected_http_code), entry.result.response_http_code, httpCodeToString(entry.result.response_http_code)});
+        Console.plain("{s} {s:<64}\n", .{test_context.entry.method, test_context.entry.url.slice()});
+        if(test_context.result.response_http_code != test_context.entry.expected_http_code) {
+            Console.red("Fault: Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{test_context.entry.expected_http_code, httpCodeToString(test_context.entry.expected_http_code), test_context.result.response_http_code, httpCodeToString(test_context.result.response_http_code)});
         }
 
-        if(!entry.result.response_match) {
-            Console.red("Fault: Match requirement '{s}' was not successful\n", .{entry.expected_response_regex.constSlice()});
+        if(!test_context.result.response_match) {
+            Console.red("Fault: Match requirement '{s}' was not successful\n", .{test_context.entry.expected_response_regex.constSlice()});
         }
     }
 
     if(!conclusion or args.verbose or args.show_response_data) {
         Console.bold("Response (up to 1024KB):\n", .{});
-        debug("{s}\n\n", .{sliceUpTo(u8, entry.result.response_first_1mb.slice(), 0, 1024*1024)});
+        debug("{s}\n\n", .{sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024*1024)});
     }
 
     if(!conclusion) return error.TestFailed;
@@ -470,7 +485,7 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
     return result;
 }
 
-fn processPlaybook(playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !void {
+fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !void {
     // Load playbook
     var buf = initBoundedArray(u8, 1024*1024);
 
@@ -491,6 +506,7 @@ fn processPlaybook(playbook_path: []const u8, args: AppArguments, input_vars:*kv
     // Pass through each item and process according to type
     for(segments.constSlice()) |segment| {
         try buf.resize(0);
+        if(args.verbose) debug("Processing segment type: {s}, line: {d}\n", .{segment.segment_type, segment.line_start});
 
         switch(segment.segment_type) {
             .Unknown => { unreachable; },
@@ -505,7 +521,7 @@ fn processPlaybook(playbook_path: []const u8, args: AppArguments, input_vars:*kv
                     // TODO: how to limit max length? will 128<s pad the result?
                     name_slice = std.fmt.bufPrint(&name_buf, "{s}", .{segment.slice}) catch { unreachable; };
                     repeats = segment.meta.TestInclude.repeats;
-                    // debug("Processing: {s}\n", .{segment.slice});
+                    if(args.verbose) debug("Processing: {s}\n", .{segment.slice});
                     // Load from file and parse
                     io.readFile(u8, buf.buffer.len, segment.slice, &buf) catch {
                         debug("ERROR: Could not read file: {s}\n", .{segment.slice});
@@ -515,14 +531,13 @@ fn processPlaybook(playbook_path: []const u8, args: AppArguments, input_vars:*kv
                 } else {
                     // debug("Processing: {s}\n", .{"inline test"});
                     // Test raw
-                    name_slice = std.fmt.bufPrint(&name_buf, "Inline segment at line: {d}", .{segment.line_start}) catch { unreachable; };
+                    name_slice = std.fmt.bufPrint(&name_buf, "Inline segment starting at line: {d}", .{segment.line_start}) catch { unreachable; };
                     try buf.appendSlice(segment.slice);
-
                 }
                 parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars) catch {};
                 parser.expandVariablesAndFunctions(buf.buffer.len, &buf, input_vars) catch {};
 
-                if(processAndEvaluateEntryFromBuf(num_processed, total_num_tests, name_slice, buf.constSlice(), args, input_vars, extracted_vars, repeats)) {
+                if(processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf.constSlice(), args, input_vars, extracted_vars, repeats)) {
                     // OK
                 } else |_| {
                     // debug("Got error: {s}\n", .{err});
@@ -569,25 +584,37 @@ pub fn main() !void {
         std.process.exit(0);
     }
 
-    mainInner(args[1..]) catch |e| {
+    mainInner(aa, args[1..]) catch |e| {
         fatal("Exited due to failure ({s})\n", .{e});
     };
 }
 
-pub fn mainInner(args: [][]u8) anyerror!void {
-    var buf = initBoundedArray(u8, 1024*1024);
+const TestContext = struct {
+    entry: Entry = .{},
+    result: EntryResult = .{}
+};
 
+pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
     if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
         return error.CURLGlobalInitFailed;
     defer cURL.curl_global_cleanup();
 
-    // TODO: Filter input-set first, to get the proper number of items? Or at least count them up
+    // Scrap-buffer to use throughout tests
+    var test_context = try allocator.create(TestContext);
 
     var parsed_args = argparse.parseArgs(args) catch |e| switch(e) {
-        error.ShowHelp => { argparse.printHelp(true); return; },
-        else => { debug("Invalid arguments.\n" ,.{}); argparse.printHelp(true); fatal("Exiting.", .{}); }
+        error.ShowHelp => {
+            argparse.printHelp(true);
+            return;
+        },
+        else => {
+            debug("Invalid arguments.", .{});
+            argparse.printHelp(true);
+            fatal("Exiting.", .{});
+        }
     };
-
+    
+    if(parsed_args.verbose) Console.grey("Processing input file arguments\n", .{});
     argparse.processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
         fatal("Could not process input file arguments: {s}\n", .{e});
     };
@@ -602,8 +629,10 @@ pub fn mainInner(args: [][]u8) anyerror!void {
     var num_processed: u64 = 0;
     var num_failed: u64 = 0;
     var extracted_vars: kvstore.KvStore = .{};
+    var buf = initBoundedArray(u8, 1024*1024);
     if(parsed_args.playbook_file.constSlice().len > 0) {
-        try processPlaybook(parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
+        if(parsed_args.verbose) debug("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
+        try processPlaybook(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
     } else {
         const time_start = std.time.milliTimestamp();
 
@@ -625,7 +654,7 @@ pub fn mainInner(args: [][]u8) anyerror!void {
             parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
             parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
 
-            if(processAndEvaluateEntryFromBuf(num_processed, parsed_args.files.slice().len, file.constSlice(), buf.constSlice(), parsed_args, &input_vars, &extracted_vars, 1)) {
+            if(processAndEvaluateEntryFromBuf(test_context, num_processed, parsed_args.files.slice().len, file.constSlice(), buf.constSlice(), parsed_args, &input_vars, &extracted_vars, 1)) {
                 // OK
             } else |err| {
                 debug("Got error: {s}\n", .{err});

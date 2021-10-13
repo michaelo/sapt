@@ -570,7 +570,7 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
 
     while(main_it.next()) |line| {
         line_idx += 1;
-        if(line.len == 0) continue; // ignore blank lines TBD: Must be sure we don't skip them if part of payload
+        if(line.len == 0) continue; // ignore blank lines
         if(line[0] == '#') continue; // ignore comments
 
         // Top level evaluation
@@ -611,12 +611,12 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                 // Parse "in-filed" test
                 // This parses until we find start of another known segment type
                 // This chunk will later be properly validated when attempted parsed
+                // Strategy: store pointer to start, iterate until end, store pointer to end, create slice from pointers
                 var buf_start = @ptrToInt(buf.ptr);
                 var chunk_line_start = line_idx;
                 var start_idx = @ptrToInt(line.ptr)-buf_start;
                 var end_idx: ?u64 = null;
                 // Parse until next >, @ or eof
-                // Opt: store pointer to start, iterate until end, store pointer to end, create slice from pointers
                 chunk_blk: while(main_it.next()) |line2| {
                     line_idx += 1;
                     // Check the following line, spin until we've reached another segment

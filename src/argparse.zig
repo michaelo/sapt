@@ -8,17 +8,15 @@ const AppArguments = main.AppArguments;
 const FilePathEntry = main.FilePathEntry;
 
 pub fn printHelp(full: bool) void {
-
     debug(
         \\
         \\{0s} v{1s} - Simple API Tester
         \\
         \\Usage: {0s} [arguments] file1 [file2 ... fileN]
         \\
-        , .{config.APP_NAME, config.APP_VERSION}
-    );
+    , .{ config.APP_NAME, config.APP_VERSION });
 
-    if(!full) return;
+    if (!full) return;
 
     debug(
         \\{0s} gettoken.pi testsuite1/*
@@ -42,32 +40,45 @@ pub fn printHelp(full: bool) void {
         \\               other tests passed as arguments. Will later autosense
         \\               based on extension instead if dedicated flag.
         \\
-        , .{config.APP_NAME}
-    );
+    , .{config.APP_NAME});
 }
 
 pub fn parseArgs(args: [][]const u8) !AppArguments {
     var result: AppArguments = .{};
 
-    for(args) |arg| {
-        // Handle flags (-f, -s, ...)
+    for (args) |arg| {
+        // Handle flags (-v, -s, ...)
         // Handle arguments with values (-o=...)
         // Handle rest (file/folder-arguments)
         // TODO: Revise to have a flat list of explicit checks, but split at = for such entries when comparing
-        if(arg[0] == '-') {
-            switch(arg.len) {
+        if (arg[0] == '-') {
+            switch (arg.len) {
                 0...1 => {
                     return error.UnknownArgument;
                 },
                 2 => {
-                    switch(arg[1]) {
-                        'h' => { return error.ShowHelp; },
-                        'v' => { result.verbose = true; },
-                        'r' => { result.recursive = true; },
-                        's' => { result.silent = true; },
-                        'd' => { result.show_response_data = true; },
-                        'm' => { result.multithreaded = true; },
-                        else => { return error.UnknownArgument; }
+                    switch (arg[1]) {
+                        'h' => {
+                            return error.ShowHelp;
+                        },
+                        'v' => {
+                            result.verbose = true;
+                        },
+                        'r' => {
+                            result.recursive = true;
+                        },
+                        's' => {
+                            result.silent = true;
+                        },
+                        'd' => {
+                            result.show_response_data = true;
+                        },
+                        'm' => {
+                            result.multithreaded = true;
+                        },
+                        else => {
+                            return error.UnknownArgument;
+                        },
                     }
                 },
                 else => {
@@ -75,19 +86,18 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
                     var eq_pos = std.mem.indexOf(u8, arg, "=") orelse return error.InvalidArgumentFormat;
 
                     var key = arg[1..eq_pos];
-                    var value = arg[eq_pos+1..];
+                    var value = arg[eq_pos + 1 ..];
 
-                    if(std.mem.eql(u8, key, "o")) {
+
+                    if (std.mem.eql(u8, key, "o")) {
                         try result.output_file.appendSlice(value);
-                    } else if(std.mem.eql(u8, key, "f")) {
-                        try result.playbook_file.appendSlice(value);
-                    }else if(std.mem.eql(u8, key, "i")) {
+                    } else if (std.mem.eql(u8, key, "i")) {
                         try result.input_vars_file.appendSlice(value);
-                    }else if(std.mem.eql(u8, key, "p")) {
+                    } else if (std.mem.eql(u8, key, "p")) {
                         try result.playbook_file.appendSlice(value);
                     }
-                }
 
+                },
             }
         } else {
             // Is (assumed) file/folder
@@ -151,25 +161,24 @@ test "parseArgs" {
     }
 
     {
-        var myargs = [_][]const u8{"-f=myplaybook"};
+        var myargs = [_][]const u8{"-p=myplaybook"};
         var parsed_args = try parseArgs(myargs[0..]);
         try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
     }
 }
 
-
-pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray(FilePathEntry,max_files)) !void {
+pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray(FilePathEntry, max_files)) !void {
     // Fail on files not matching expected name-pattern
     // Expand folders
     // Verify that files exists and are readable
     var cwd = fs.cwd();
-    const readFlags = std.fs.File.OpenFlags {.read=true};
+    const readFlags = std.fs.File.OpenFlags{ .read = true };
     {
-        var i:usize = 0;
+        var i: usize = 0;
         var file: *FilePathEntry = undefined;
-        while(i < files.slice().len) : ( i+=1 ) {
+        while (i < files.slice().len) : (i += 1) {
             file = &files.get(i);
-            // debug("Processing: {s}\n", .{file.slice()}); # TODO: 
+            // debug("Processing: {s}\n", .{file.slice()}); # TODO:
             // Verify that file/folder exists, otherwise fail
             cwd.access(file.constSlice(), readFlags) catch {
                 debug("Can not access '{s}'\n", .{file.slice()});
@@ -177,7 +186,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
             };
 
             // Try to open as dir
-            var dir = cwd.openDir(file.constSlice(), .{.iterate=true}) catch |e| switch(e) {
+            var dir = cwd.openDir(file.constSlice(), .{ .iterate = true }) catch |e| switch (e) {
                 // Not a dir, that's OK
                 error.NotDir => continue,
                 else => return error.UnknownError,
@@ -187,7 +196,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
             var d_it = dir.iterate();
             while (try d_it.next()) |a_path| {
                 var stat = try (try dir.openFile(a_path.name, readFlags)).stat();
-                switch(stat.kind) {
+                switch (stat.kind) {
                     .File => {
                         // TODO: Ignore .env and non-.pi files here?
                         // TODO: If we shall support .env-files pr folder/suite, then we will perhaps need to keep track of "suites" internally as well?
@@ -203,35 +212,34 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                         debug("Found subdir: {s}\n", .{a_path.name});
                         // If recursive: process
                     },
-                    else => {}
+                    else => {},
                 }
             }
         }
     }
 
     // Remove all folders
-    for(files.slice()) |file, i| {
-        _ = cwd.openDir(file.constSlice(), .{.iterate=true}) catch {
+    for (files.slice()) |file, i| {
+        _ = cwd.openDir(file.constSlice(), .{ .iterate = true }) catch {
             // Not a dir, leave alone
             continue;
         };
-        
+
         // Dir, remove
         _ = files.swapRemove(i);
     }
 
     // Sort the remainding entries
     std.sort.sort(FilePathEntry, files.slice(), {}, struct {
-            fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
-                _ = context;
-                return std.mem.lessThan(u8, a.constSlice(), b.constSlice());
-            }
-        }.func);
-
+        fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
+            _ = context;
+            return std.mem.lessThan(u8, a.constSlice(), b.constSlice());
+        }
+    }.func);
 }
 
 test "processInputFileArguments" {
-    var files: std.BoundedArray(FilePathEntry,128) = main.initBoundedArray(FilePathEntry, 128);
+    var files: std.BoundedArray(FilePathEntry, 128) = main.initBoundedArray(FilePathEntry, 128);
     try files.append(try FilePathEntry.fromSlice("testdata/01-warnme"));
 
     try processInputFileArguments(128, &files);
