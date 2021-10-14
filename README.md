@@ -346,6 +346,7 @@ TODO, somewhat ordered:
 ------------
 * Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * TBD: shall we provide libcurl? If so, make sure to conform to https://curl.se/docs/copyright.html.
+* Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * sapt -h should also provide information about format of test files, and perhaps also playbooks, to be self-contained.
     * Propose:
         * sapt -h test

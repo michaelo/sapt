@@ -54,9 +54,19 @@ pub const errors = error {
     BufferTooSmall,
 };
 
+const ExitCode = enum(u8) {
+    Ok = 0,
+    ProcessError = 1,
+    TestsFailed = 2,
+};
+
+pub fn exit(code: ExitCode) noreturn {
+    std.process.exit(@enumToInt(code));
+}
+
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     debug(format, args);
-    std.process.exit(1); // TODO: Introduce several error codes?
+    exit(.ProcessError);
 }
 
 pub const Entry = struct {
@@ -81,6 +91,24 @@ pub const EntryResult = struct {
     response_first_1mb: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
 };
 
+const ProcessStatistics = struct {
+    time_total: i64 = 0,
+    time_min: i64 = undefined,
+    time_max: i64 = undefined,
+    time_avg: i64 = undefined,
+};
+
+const TestContext = struct {
+    entry: Entry = .{},
+    result: EntryResult = .{}
+};
+
+const ExecutionStats = struct {
+    num_tests: u64 = 0,
+    num_success: u64 = 0,
+    num_fail: u64 = 0,
+};
+
 pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
 
 pub const AppArguments = struct {
@@ -92,6 +120,8 @@ pub const AppArguments = struct {
     verbose: bool = false,
     //-d
     show_response_data: bool = false,
+    //TODO: --pretty - try to print the response-data in a formatted way based on Content-Type
+    //-v=curl, -v=debug, -v=data  -- -v=data == -d, 
     //-r
     recursive: bool = false,
     //-m allows for concurrent requests for repeated tests
@@ -120,13 +150,6 @@ fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
 
     return true;
 }
-
-const ProcessStatistics = struct {
-    time_total: i64 = 0,
-    time_min: i64 = undefined,
-    time_max: i64 = undefined,
-    time_avg: i64 = undefined,
-};
 
 // Process entry and evaluate results. Returns error-type in case of either parse error, process error or evaluation error
 fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const u8, repeats: u32, stats: *ProcessStatistics, line_idx_offset: usize) !void {
@@ -244,7 +267,7 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
     // Do
     var stats: ProcessStatistics = .{};
-    if(args.verbose) debug("processAndEvaluateEntryFromBuf: {s}\n", .{entry_name});
+    if(args.verbose) debug("Processing entry: {s}\n", .{entry_name});
     
     processEntryMain(test_context, args, entry_buf, repeats, &stats, line_idx_offset) catch |err| {
         // TODO: Switch the errors and give helpful output
@@ -312,11 +335,10 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
     return result;
 }
 
-
-fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !void {
+fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     // Load playbook
     // var scrap: [4*1024]u8 = undefined;
-    var buf_playbook = initBoundedArray(u8, 1024*1024); // TODO: this must currently be kept as it is used to look up data from for the segments
+    var buf_playbook = initBoundedArray(u8, 1024*1024); // Att: this must be kept as it is used to look up data from for the segments
     var buf_test = initBoundedArray(u8, 1024*1024);
 
     io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
@@ -344,6 +366,10 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
         switch(segment.segment_type) {
             .Unknown => { unreachable; },
             .TestInclude, .TestRaw => {
+                // We got a test.
+                // For file-based tests: read the file to a buffer
+                // For in-playbook tests: copy the contents to buffer
+                // - then from that point on: unified processing
                 num_processed += 1;
                 var name_buf: [128]u8 = undefined;
                 var name_slice: []u8 = undefined;
@@ -363,16 +389,18 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                 } else {
                     // debug("Processing: {s}\n", .{"inline test"});
                     // Test raw
-                    name_slice = std.fmt.bufPrint(&name_buf, "Inline segment starting at line: {d}", .{segment.line_start}) catch { unreachable; };
+                    name_slice = try std.fmt.bufPrint(&name_buf, "Inline segment starting at line: {d}", .{segment.line_start});
                     try buf_test.appendSlice(segment.slice);
                 }
+
+                // Expand variables
                 parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, extracted_vars) catch {};
                 parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, input_vars) catch {};
 
+                // Execute the test
                 if(processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf_test.constSlice(), args, input_vars, extracted_vars, repeats, segment.line_start)) {
                     // OK
                 } else |_| {
-                    // debug("Got error: {s}\n", .{err});
                     num_failed += 1;
                 }
 
@@ -400,33 +428,61 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
         , .{num_processed-num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp()-time_start)/1000}
     );
 
-}
-
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-
-    defer arena.deinit();
-    const aa = &arena.allocator;
-
-    const args = try std.process.argsAlloc(aa);
-    defer std.process.argsFree(aa, args);
-
-    if(args.len == 1) {
-        argparse.printHelp(false);
-        std.process.exit(0);
-    }
-
-    mainInner(aa, args[1..]) catch |e| {
-        fatal("Exited due to failure ({s})\n", .{e});
+    return ExecutionStats{
+        .num_tests = num_processed,
+        .num_success = num_processed-num_failed,
+        .num_fail = num_failed,
     };
 }
 
-const TestContext = struct {
-    entry: Entry = .{},
-    result: EntryResult = .{}
-};
+// Regular path for tests passed as arguments
+fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
+    var buf = initBoundedArray(u8, 1024*1024);
+    var num_processed: u64 = 0;
+    var num_failed: u64 = 0;
+    const time_start = std.time.milliTimestamp();
 
-pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
+    for (args.files.slice()) |file| {
+        if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
+        
+        num_processed += 1;
+
+        //////////////////
+        // Process
+        //////////////////
+        io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
+            debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
+            num_failed += 1;
+            continue;
+        };
+
+        // Expand all variables
+        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars) catch {};
+        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, input_vars) catch {};
+
+        if(processAndEvaluateEntryFromBuf(test_context, num_processed, args.files.slice().len, file.constSlice(), buf.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
+            // OK
+        } else |_| {
+            num_failed += 1;
+        }
+    }
+    debug(
+        \\------------------
+        \\{d}/{d} OK
+        \\------------------
+        \\FINISHED - total time: {d}s
+        \\
+        , .{num_processed-num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp()-time_start)/1000}
+    );
+
+    return ExecutionStats{
+        .num_tests = num_processed,
+        .num_success = num_processed-num_failed,
+        .num_fail = num_failed,
+    };
+}
+
+pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!ExecutionStats {
     try httpclient.init();
     defer httpclient.deinit();
 
@@ -436,7 +492,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
     var parsed_args = argparse.parseArgs(args) catch |e| switch(e) {
         error.ShowHelp => {
             argparse.printHelp(true);
-            return;
+            return ExecutionStats{};
         },
         else => {
             debug("Invalid arguments.", .{});
@@ -457,54 +513,46 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
         input_vars = try envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
     }
 
-    var num_processed: u64 = 0;
-    var num_failed: u64 = 0;
     var extracted_vars: kvstore.KvStore = .{};
-    var buf = initBoundedArray(u8, 1024*1024);
+    var stats: ExecutionStats = .{};
     if(parsed_args.playbook_file.constSlice().len > 0) {
         // Process playbook
         if(parsed_args.verbose) debug("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
-        try processPlaybook(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
+        stats = try processPlaybook(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
     } else {
         // Process regular list of entries
-        const time_start = std.time.milliTimestamp();
-
-        for (parsed_args.files.slice()) |file| {
-            if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
-            
-            num_processed += 1;
-
-            //////////////////
-            // Process
-            //////////////////
-            io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
-                debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
-                num_failed += 1;
-                continue;
-            };
-
-            // Expand all variables
-            parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
-            parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
-
-            if(processAndEvaluateEntryFromBuf(test_context, num_processed, parsed_args.files.slice().len, file.constSlice(), buf.constSlice(), parsed_args, &input_vars, &extracted_vars, 1, 0)) {
-                // OK
-            } else |err| {
-                debug("Got error: {s}\n", .{err});
-                num_failed += 1;
-            }
-        }
-        debug(
-            \\------------------
-            \\{d}/{d} OK
-            \\------------------
-            \\FINISHED - total time: {d}s
-            \\
-            , .{num_processed-num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp()-time_start)/1000}
-        );
-
+        stats = try processTestlist(test_context, &parsed_args, &input_vars, &extracted_vars);
     }
+
+    return stats;
 }
+
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
+    defer arena.deinit();
+    const aa = &arena.allocator;
+
+    const args = try std.process.argsAlloc(aa);
+    defer std.process.argsFree(aa, args);
+
+    if(args.len == 1) {
+        argparse.printHelp(false);
+        std.process.exit(0);
+    }
+
+    var stats = mainInner(aa, args[1..]) catch |e| {
+        fatal("Exited due to failure ({s})\n", .{e});
+    };
+
+    if(stats.num_fail > 0) {
+        debug("Not all tests were successful: {d} of {d} failed\n", .{stats.num_fail, stats.num_tests});
+        exit(.TestsFailed);
+    }
+
+    exit(.Ok);
+}
+
 
 pub fn envFileToKvStore(dir: fs.Dir, path: []const u8) !kvstore.KvStore {
     var tmpbuf: [1024*1024]u8 = undefined;
@@ -516,7 +564,7 @@ pub fn envFileToKvStore(dir: fs.Dir, path: []const u8) !kvstore.KvStore {
 }
 
 test "envFileToKvStore" {
-    var store = try envFileToKvStore(fs.cwd, "testdata/env");
+    var store = try envFileToKvStore(fs.cwd(), "testdata/env");
     try testing.expect(store.count() == 2);
     try testing.expectEqualStrings("value", store.get("key").?);
     try testing.expectEqualStrings("dabba", store.get("abba").?);
