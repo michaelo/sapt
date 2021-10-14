@@ -129,8 +129,10 @@ Usage: playbook (draft, not implemented)
 -----------
 myplay.book contents:
 
-    myproj/auth.pi 1
-    myproj/api_get.pi 100 # Run this request 100 times
+    # Run this request 1 time
+    myproj/auth.pi
+    # Run this request 100 times
+    myproj/api_get.pi * 100
 
 Tests shall be run in the order declared in the playbook. Each test may be followed by a number indicating the number of times it shall be performed.
 
@@ -338,7 +340,6 @@ Set of variable extraction expressions, optional:
 
 Must fix to be usable AKA pri-TODO:
 -------------
-* Indicate position of parse-errors
 * Implement support for automatically include .env-files if they are found, scoped to the folder in which the reside.
 * Playbooks must resolve paths relative to folder of playbook
 
@@ -350,7 +351,7 @@ TODO, somewhat ordered:
     * Propose:
         * sapt -h test
         * sapt -h playbook
-* Provide better stats for repeats. We currently have min, max and avg time. Some weighted avg or something could be useful.
+* Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
 * TBD: Allow support for OS-environment variables. Control access by flag?
 * Implement support to do step-by-step tests by e.g. requiring user to press enter between each test

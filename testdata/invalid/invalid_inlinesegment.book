@@ -1,0 +1,7 @@
+# Comment
+@some/test.pi
+
+# Invalid inline segment:
+> GET https://example.com/
+InvalidHeader
+< 200

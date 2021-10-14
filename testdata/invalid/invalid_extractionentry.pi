@@ -1,0 +1,3 @@
+> GET https://vg.no/
+< 200
+INVALID_EXTRACTION_ENTRY

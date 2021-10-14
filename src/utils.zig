@@ -17,3 +17,7 @@ pub fn boundedArrayAsCstr(comptime capacity: usize, array: *std.BoundedArray(u8,
 pub fn sliceUpTo(comptime T: type, slice: []T, from: usize, to: usize) []T {
     return slice[from..std.math.min(slice.len, to)];
 }
+
+pub fn constSliceUpTo(comptime T: type, slice: []const T, from: usize, to: usize) []const T {
+    return slice[from..std.math.min(slice.len, to)];
+}

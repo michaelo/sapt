@@ -15,7 +15,27 @@ const HttpMethod = types.HttpMethod;
 const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
 
-pub fn parseContents(data: []const u8, result: *Entry) errors!void {
+const Console = @import("console.zig").Console;
+
+pub fn parseError(comptime text: []const u8, line_no: usize, col_no: usize, buf: []const u8, line: []const u8) void {
+    parseErrorArg(text, .{}, line_no, col_no, buf, line);
+}
+
+pub fn parseErrorArg(comptime text: []const u8, args: anytype, line_no: usize, col_no: usize, buf: []const u8, line: ?[]const u8) void {
+    _ = buf;
+    _ = col_no;
+    Console.red("ERROR: ", .{});
+    Console.plain(text, args);
+    if(line) |line_value| {
+        Console.plain("\n       Line: {d}: {s}\n", .{line_no+1, line_value});
+    } else {
+        Console.plain("\n", .{});
+    }
+}
+
+
+// TODO: Add parameter for line-offset since errors also must be correct for playbooks
+pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) errors!void {
     const ParseState = enum {
         Init,
         InputSection,
@@ -31,26 +51,46 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
         fn parseInputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line[0..], " ");
             _ = lit.next(); // skip >
-            _result.method = HttpMethod.create(lit.next().?[0..]) catch return errors.ParseErrorInputSection;
+            _result.method = HttpMethod.create(lit.next().?[0..]) catch return errors.ParseErrorInputSectionNoSuchMethod;
             const url = lit.next().?[0..];
-            _result.url.insertSlice(0, url) catch return errors.ParseErrorInputSection;
+            _result.url.insertSlice(0, url) catch return errors.ParseErrorInputSectionUrlTooLong;
         }
 
         fn parseOutputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, " ");
             _ = lit.next(); // skip <
-            _result.expected_http_code = std.fmt.parseInt(u64, lit.next().?[0..], 10) catch return errors.ParseErrorOutputSection;
-            _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseErrorOutputSection;
+            if(lit.next()) |http_code| {
+                _result.expected_http_code = std.fmt.parseInt(u64, http_code[0..], 10) catch return errors.ParseErrorOutputSection;
+                _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseErrorOutputSection;
+            } else {
+                return errors.ParseErrorOutputSection;
+            }
         }
 
         fn parseHeaderEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, ":");
-            _result.headers.append(try HttpHeader.create(lit.next().?, lit.next().?)) catch return errors.ParseErrorHeaderEntry;
+            if(lit.next()) |key| {
+                if(lit.next()) |value| {
+                    _result.headers.append(try HttpHeader.create(key, value)) catch return errors.ParseErrorHeaderEntry;
+                } else {
+                    return error.ParseErrorHeaderEntry;
+                }
+            } else {
+                return error.ParseErrorHeaderEntry;
+            }
         }
 
         fn parseExtractionEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, "=");
-            _result.extraction_entries.append(try ExtractionEntry.create(lit.next().?, lit.next().?)) catch return errors.ParseErrorExtractionEntry;
+            if(lit.next()) |key| {
+                if(lit.next()) |value| {
+                    _result.extraction_entries.append(try ExtractionEntry.create(key, value)) catch return errors.ParseErrorExtractionEntry;
+                } else {
+                    return error.ParseErrorExtractionEntry;
+                }
+            } else {
+                return error.ParseErrorExtractionEntry;
+            }
         }
 
         fn parseInputPayloadLine(line: []const u8, _result: *Entry) !void {
@@ -63,15 +103,20 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
     // Tokenize by line ending. Check for first char being > and < to determine sections, then do section-specific parsing.
     var state = ParseState.Init;
     var it = std.mem.split(u8, data, io.getLineEnding(data));
-    while (it.next()) |line| {
+    var line_idx: usize = line_idx_offset;
+    while (it.next()) |line| : (line_idx+=1) {
         // TODO: Refactor. State-names are confusing.
         switch (state) {
             ParseState.Init => {
                 if (ParserFunctions.isEmptyLineOrComment(line)) continue;
                 if (line[0] == '>') {
                     state = ParseState.InputSection;
-                    try ParserFunctions.parseInputSectionHeader(line, result);
+                    ParserFunctions.parseInputSectionHeader(line, result) catch |e| {
+                        parseError("Could not parse input section header", line_idx, 0, data, line);
+                        return e;
+                    };
                 } else {
+                    parseError("Expected input section header", line_idx, 0, data, line);
                     return errors.ParseError;
                 }
             },
@@ -82,10 +127,16 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
                 } else if (line[0] == '<') {
                     // Parse initial expected output section
                     state = ParseState.OutputSection;
-                    try ParserFunctions.parseOutputSectionHeader(line, result);
+                    ParserFunctions.parseOutputSectionHeader(line, result) catch |e| {
+                        parseError("Could not parse output section header", line_idx, 0, data, line);
+                        return e;
+                    };
                 } else {
                     // Parse headers
-                    try ParserFunctions.parseHeaderEntry(line, result);
+                    ParserFunctions.parseHeaderEntry(line, result) catch |e| {
+                        parseError("Could not parse header entry", line_idx, 0, data, line);
+                        return e;
+                    };
                 }
             },
             ParseState.InputPayloadSection => { // Optional section
@@ -97,17 +148,27 @@ pub fn parseContents(data: []const u8, result: *Entry) errors!void {
 
                     // Parse initial expected output section
                     state = ParseState.OutputSection;
-                    try ParserFunctions.parseOutputSectionHeader(line, result);
+                    ParserFunctions.parseOutputSectionHeader(line, result) catch |e| {
+                        parseError("Could not parse output section header", line_idx, 0, data, line);
+                        return e;
+                    };
                 } else {
                     // Add each line verbatim to payload-buffer
-                    try ParserFunctions.parseInputPayloadLine(line, result);
+                    ParserFunctions.parseInputPayloadLine(line, result) catch |e| {
+                        // TODO: Ensure it's capacity issue
+                        parseErrorArg("Could not parse payload section - it's too big. Max payload size is {d}B", .{result.payload.capacity()}, line_idx, 0, data, line);
+                        return e;
+                    };
                 }
             },
             ParseState.OutputSection => {
                 if (ParserFunctions.isEmptyLineOrComment(line)) continue;
 
                 // Parse extraction_entries
-                try ParserFunctions.parseExtractionEntry(line, result);
+                ParserFunctions.parseExtractionEntry(line, result) catch |e| {
+                    parseError("Could not parse extraction entry", line_idx, 0, data, line);
+                    return e;
+                };
             },
         }
     }
@@ -126,7 +187,7 @@ test "parseContents" {
         \\
     ;
 
-    try parseContents(data, &entry);
+    try parseContents(data, &entry, 0);
 
     try testing.expectEqual(entry.method, HttpMethod.Get);
     try testing.expectEqualStrings(entry.url.slice(), "https://api.warnme.no/api/status");
@@ -155,7 +216,7 @@ test "parseContents extracts to variables" {
         \\
     ;
 
-    try parseContents(data, &entry);
+    try parseContents(data, &entry, 0);
     // debug("sizeof(Entry): {}\n", .{@intToFloat(f64,@sizeOf(Entry))/1024/1024});
     try testing.expectEqual(@intCast(usize, 1), entry.extraction_entries.slice().len);
     try testing.expectEqualStrings("myvar", entry.extraction_entries.get(0).name.slice());
@@ -470,7 +531,7 @@ test "parseContents ignores comments" {
         \\
     ;
 
-    try parseContents(data, &entry);
+    try parseContents(data, &entry, 0);
     try testing.expect(entry.headers.slice().len == 0);
 }
 
@@ -490,7 +551,7 @@ test "parseContents shall extract payload" {
         \\
     ;
 
-    try parseContents(data, &entry);
+    try parseContents(data, &entry, 0);
     try testing.expectEqualStrings("Payload goes here\nand here", entry.payload.slice());
 }
 
@@ -570,8 +631,7 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
     var line_idx: u64 = 0;
     var seg_idx: u64 = 0;
 
-    while(main_it.next()) |line| {
-        line_idx += 1;
+    while(main_it.next()) |line| : (line_idx += 1) {
         if(line.len == 0) continue; // ignore blank lines
         if(line[0] == '#') continue; // ignore comments
 

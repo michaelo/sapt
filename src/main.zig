@@ -40,11 +40,14 @@ pub const errors = error {
     TestFailed,
     TestsFailed,
 
+    // TODO: Make parse errors specific by parser.zig?
     ParseErrorInputSection,
     ParseErrorOutputSection,
     ParseErrorHeaderEntry,
     ParseErrorExtractionEntry,
     ParseErrorInputPayload,
+    ParseErrorInputSectionNoSuchMethod,
+    ParseErrorInputSectionUrlTooLong,
 
     NoSuchFunction,
     BufferTooSmall,
@@ -125,11 +128,11 @@ const ProcessStatistics = struct {
 };
 
 // Process entry and evaluate results. Returns error-type in case of either parse error, process error or evaluation error
-fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const u8, repeats: u32, stats: *ProcessStatistics) !void {
+fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const u8, repeats: u32, stats: *ProcessStatistics, line_idx_offset: usize) !void {
     var entry: *Entry = &test_context.entry;
     var result: *EntryResult = &test_context.result;
 
-    try parser.parseContents(buf, entry);
+    try parser.parseContents(buf, entry, line_idx_offset);
 
     // TODO: Refactor this to better unify the different call-methods/variants
     stats.time_max = 0;
@@ -233,7 +236,7 @@ fn extractExtractionEntries(entry: Entry, result: EntryResult, store: *kvstore.K
 
 /// Main do'er to do anything related to orchestrating the execution of the entry, repeats and outputting the results
 /// Common to both regular flow (entries as arguments) and playbooks
-fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32) !void {
+fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32, line_idx_offset: usize) !void {
     test_context.* = .{}; // Reset
     _ = input_vars;
     test_context.entry.repeats = repeats;
@@ -242,7 +245,7 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
     var stats: ProcessStatistics = .{};
     if(args.verbose) debug("processAndEvaluateEntryFromBuf: {s}\n", .{entry_name});
     
-    processEntryMain(test_context, args, entry_buf, repeats, &stats) catch |err| {
+    processEntryMain(test_context, args, entry_buf, repeats, &stats, line_idx_offset) catch |err| {
         // TODO: Switch the errors and give helpful output
         Console.red("{d}/{d}: {s:<64}            : Process error {s}\n", .{idx, total, entry_name, err});
         return error.CouldNotProcessEntry;
@@ -340,15 +343,14 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                 var name_slice: []u8 = undefined;
                 var repeats: u32 = 1;
 
-                // TODO: Store either name of file, or line-ref to playbook to ID test in output
                 if(segment.segment_type == .TestInclude) {
                     // TODO: how to limit max length? will 128<s pad the result?
-                    name_slice = std.fmt.bufPrint(&name_buf, "{s}", .{segment.slice}) catch { unreachable; };
+                    name_slice = try std.fmt.bufPrint(&name_buf, "{s}", .{utils.constSliceUpTo(u8, segment.slice, 0, name_buf.len)});
                     repeats = segment.meta.TestInclude.repeats;
                     if(args.verbose) debug("Processing: {s}\n", .{segment.slice});
                     // Load from file and parse
                     io.readFile(u8, buf_test.buffer.len, segment.slice, &buf_test) catch {
-                        debug("ERROR: Could not read file: {s}\n", .{segment.slice});
+                        parser.parseErrorArg("Could not read file", .{}, segment.line_start, 0, buf_test.constSlice(), segment.slice);
                         num_failed += 1;
                         continue;
                     };
@@ -361,7 +363,7 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                 parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, extracted_vars) catch {};
                 parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, input_vars) catch {};
 
-                if(processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf_test.constSlice(), args, input_vars, extracted_vars, repeats)) {
+                if(processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf_test.constSlice(), args, input_vars, extracted_vars, repeats, segment.line_start)) {
                     // OK
                 } else |_| {
                     // debug("Got error: {s}\n", .{err});
@@ -454,9 +456,11 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
     var extracted_vars: kvstore.KvStore = .{};
     var buf = initBoundedArray(u8, 1024*1024);
     if(parsed_args.playbook_file.constSlice().len > 0) {
+        // Process playbook
         if(parsed_args.verbose) debug("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
         try processPlaybook(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
     } else {
+        // Process regular list of entries
         const time_start = std.time.milliTimestamp();
 
         for (parsed_args.files.slice()) |file| {
@@ -477,7 +481,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
             parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &extracted_vars) catch {};
             parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &input_vars) catch {};
 
-            if(processAndEvaluateEntryFromBuf(test_context, num_processed, parsed_args.files.slice().len, file.constSlice(), buf.constSlice(), parsed_args, &input_vars, &extracted_vars, 1)) {
+            if(processAndEvaluateEntryFromBuf(test_context, num_processed, parsed_args.files.slice().len, file.constSlice(), buf.constSlice(), parsed_args, &input_vars, &extracted_vars, 1, 0)) {
                 // OK
             } else |err| {
                 debug("Got error: {s}\n", .{err});
