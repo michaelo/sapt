@@ -5,6 +5,7 @@
 // * Establish how to proper handle C-style strings wrt to curl-interop
 // 
 const std = @import("std");
+const fs = std.fs;
 
 // Outputters
 // const info = std.log.info;
@@ -311,8 +312,10 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
     return result;
 }
 
+
 fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !void {
     // Load playbook
+    // var scrap: [4*1024]u8 = undefined;
     var buf_playbook = initBoundedArray(u8, 1024*1024); // TODO: this must currently be kept as it is used to look up data from for the segments
     var buf_test = initBoundedArray(u8, 1024*1024);
 
@@ -324,6 +327,9 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
     var segments = initBoundedArray(parser.PlaybookSegment, 128);
     try segments.resize(parser.parsePlaybook(buf_playbook.constSlice(), segments.unusedCapacitySlice()));
 
+    // Playbooks shall resolve file-includes relative to self
+    var original_cwd = fs.cwd();
+    var playbook_basedir = try original_cwd.openDir(io.getParent(playbook_path), .{});
 
     // Iterate over playbook and act according to each type
     var num_failed: u64 = 0;
@@ -349,7 +355,7 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                     repeats = segment.meta.TestInclude.repeats;
                     if(args.verbose) debug("Processing: {s}\n", .{segment.slice});
                     // Load from file and parse
-                    io.readFile(u8, buf_test.buffer.len, segment.slice, &buf_test) catch {
+                    io.readFileRel(u8, buf_test.buffer.len, playbook_basedir, segment.slice, &buf_test) catch {
                         parser.parseErrorArg("Could not read file", .{}, segment.line_start, 0, buf_test.constSlice(), segment.slice);
                         num_failed += 1;
                         continue;
@@ -374,7 +380,7 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
             .EnvInclude => {
                 // Load from file and parse
                 if(args.verbose) debug("Loading env-file: '{s}'\n", .{segment.slice});
-                try input_vars.addFromOther((try envFileToKvStore(segment.slice)), .Fail);
+                try input_vars.addFromOther((try envFileToKvStore(playbook_basedir, segment.slice)), .Fail);
             },
             .EnvRaw => {
                 // Parse key=value directly
@@ -448,7 +454,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
     if(parsed_args.input_vars_file.constSlice().len > 0) {
         if(parsed_args.verbose) debug("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
         // TODO: expand variables within envfiles? This to e.g. allow env-files to refer to OS ENV. Any proper use case?
-        input_vars = try envFileToKvStore(parsed_args.input_vars_file.constSlice());
+        input_vars = try envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
     }
 
     var num_processed: u64 = 0;
@@ -500,9 +506,9 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!void {
     }
 }
 
-pub fn envFileToKvStore(path: []const u8) !kvstore.KvStore {
+pub fn envFileToKvStore(dir: fs.Dir, path: []const u8) !kvstore.KvStore {
     var tmpbuf: [1024*1024]u8 = undefined;
-    var buf_len = io.readFileRaw(path, &tmpbuf) catch {
+    var buf_len = io.readFileRawRel(dir, path, &tmpbuf) catch {
         return error.CouldNotReadFile;
     };
 
@@ -510,7 +516,7 @@ pub fn envFileToKvStore(path: []const u8) !kvstore.KvStore {
 }
 
 test "envFileToKvStore" {
-    var store = try envFileToKvStore("testdata/env");
+    var store = try envFileToKvStore(fs.cwd, "testdata/env");
     try testing.expect(store.count() == 2);
     try testing.expectEqualStrings("value", store.get("key").?);
     try testing.expectEqualStrings("dabba", store.get("abba").?);

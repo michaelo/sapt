@@ -140,7 +140,7 @@ Running the playbook:
 
     sapt -b=myplay.book
 
-(TBD: base-point for relative paths in the playbook)
+Playbooks resolves paths relative to its own location.
 
 Output:
 
@@ -341,7 +341,6 @@ Set of variable extraction expressions, optional:
 Must fix to be usable AKA pri-TODO:
 -------------
 * Implement support for automatically include .env-files if they are found, scoped to the folder in which the reside.
-* Playbooks must resolve paths relative to folder of playbook
 
 TODO, somewhat ordered:
 ------------
