@@ -23,7 +23,7 @@ pub fn printHelp(full: bool) void {
     debug(
         \\{0s} gettoken.pi testsuite1/*
         \\{0s} -p=myplaybook.book
-        \\{0s} -p=myplaybook.book -s -o=output.log
+//        \\{0s} -p=myplaybook.book -s -o=output.log
         \\{0s} -i=testsuite01/.env testsuite01
         \\
         \\Arguments
@@ -31,13 +31,13 @@ pub fn printHelp(full: bool) void {
         // \\  --test-help
         // \\  --playbook-help
         \\  -v           Verbose
-        \\  -r           Recursive -- not implemented yet
-        \\  -s           Silent -- not implemented yet
+//        \\  -r           Recursive -- not implemented yet
+//        \\  -s           Silent -- not implemented yet
         \\  -d           Show response data
         \\  -m           Activates multithreading - relevant for repeated tests via 
         \\               playbooks.
         \\  -i=file      Input-variables file
-        \\  -o=file      Redirect all output to file
+//        \\  -o=file      Redirect all output to file
         \\  -p=playbook  Read tests to perform from playbook-file -- if set, ignores
         \\               other tests passed as arguments. Will later autosense
         \\               based on extension instead if dedicated flag.
