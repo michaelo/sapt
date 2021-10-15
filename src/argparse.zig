@@ -34,6 +34,8 @@ pub fn printHelp(full: bool) void {
 //        \\  -r           Recursive -- not implemented yet
 //        \\  -s           Silent -- not implemented yet
         \\  -d           Show response data
+        \\  -f           Try to format response data based on Content-Type.
+        \\               Naive support for JSON, XML and HTML.
         \\  -m           Activates multithreading - relevant for repeated tests via 
         \\               playbooks.
         \\  -i=file      Input-variables file
@@ -74,6 +76,9 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
                         },
                         'd' => {
                             result.show_response_data = true;
+                        },
+                        'f' => {
+                            result.show_pretty_response_data = true;
                         },
                         'm' => {
                             result.multithreaded = true;

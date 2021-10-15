@@ -55,6 +55,8 @@ pub const Console = struct {
         ttyconf.setColor(stdout, .Reset);
     }
 
+    // TODO: Add wrapper for error() and debug()?
+
     pub fn nl() void {
         const stdout = std.io.getStdOut().writer();
         // var ttyconf = std.debug.detectTTYConfig();

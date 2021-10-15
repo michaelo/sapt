@@ -36,7 +36,8 @@ sapt can take multiple arguments, both files and folders. The entire input-set w
 
 *Note: playbooks provides a way to override this.*
 
-<!-- 
+<!--
+
 Why oh why
 ----------------
 
@@ -65,7 +66,8 @@ Why oh why
         a) I loved it
             Me: Awesome!
         b) I hated it
-            Me: No worries. Take care! -->
+            Me: No worries. Take care!
+-->
 
 
 Usage: Complex
@@ -125,7 +127,7 @@ Output:
 
 *Tips: You can add -v or -d for more detailed output*
 
-Usage: playbook (draft, not implemented)
+Usage: playbook
 -----------
 myplay.book contents:
 
@@ -144,9 +146,14 @@ Playbooks resolves paths relative to its own location.
 
 Output:
 
-        Test             |       time             |    OK vs total
-    1: myproj/auth.pi    | avg: 0.2s [0.1-0.3s]   |     1/1    OK
-    2: myproj/api_get.pi | avg: 0.15s [0.1-0.5s]  |     95/100 ERROR
+    1/5: myproj/auth.pi                                         : OK (HTTP 200 - OK)
+    time: 256ms
+    2/5: myproj/api_get.pi                                      : OK (HTTP 200 - OK)
+    100 iterations. 100 OK, 0 Error
+    time: 1050ms/100 iterations [83ms-215ms] avg:105ms
+    ------------------
+    2/2 OK
+    ------------------
 
 
 Build:
@@ -206,7 +213,7 @@ Terminology:
 
 Limitations:
 ------
-Due in part to the effort to avoid heap-usage, a set of discrete limitations are currently cheracteristic for the tool. I will very likely revise a lot of these decisions going forward - but here they are:
+Due in part to the efforts to both having a clear understanding of the RAM-usage, as well as keeping the heap-usage low and controlled, a set of discrete limitations are currently cheracteristic for the tool. I will very likely revise a lot of these decisions going forward - but here they are:
 
 <table>
     <thead>
@@ -341,12 +348,15 @@ Set of variable extraction expressions, optional:
 Must fix to be usable AKA pri-TODO:
 -------------
 * Implement support for automatically include .env-files if they are found, scoped to the folder in which the reside.
+* Determine if current solution where variables can't be overwritten is a good idea or not.
 
 TODO, somewhat ordered:
 ------------
 * Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * TBD: shall we provide libcurl? If so, make sure to conform to https://curl.se/docs/copyright.html.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
+* Code quality - especially in main.zig - is quite crap at this point.
+* Arguments: Revise names for all arguments. E.g. -f is now "format", while it's commonly assumed to be "force".
 * sapt -h should also provide information about format of test files, and perhaps also playbooks, to be self-contained.
     * Propose:
         * sapt -h test
@@ -356,10 +366,23 @@ TODO, somewhat ordered:
 * TBD: Allow support for OS-environment variables. Control access by flag?
 * Implement support to do step-by-step tests by e.g. requiring user to press enter between each test
 * Provide better granularity for verbosity: e.g. separate between curl-verbose and sapt-verbose
-* Check for Content-Type of response and support pretty-printing of at least JSON, preferrably also HTML and XML
 * Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
     * Support repeating sequence of actions? E.g. add, check, remove.
+        
+            # Proposal of such functionality:
+            group {
+            # Include a couple tests
+            @test1.pi
+            @test2.pi
+
+            # Perhaps also an in-playbook test?
+            > GET https://example.com/
+            < 200
+            } * 1000
+            #TBD: Must ensure parsing doesn't get confused with '}' inside headers, payload, er extraction-expressions.
+            This smells like feature creep, so will wait for a proper use case before considering.
+
     * TBD: The current time of request - are we sure we're testing the correct segment?
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests

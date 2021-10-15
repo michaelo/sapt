@@ -45,7 +45,7 @@ pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.E
     ///////////////////////
 
     // Set HTTP method
-    if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_CUSTOMREQUEST, entry.method.string()) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_CUSTOMREQUEST, entry.method.string()) != cURL.CURLE_OK)
         return error.CouldNotSetRequestMethod;
 
     // Set URL
@@ -53,15 +53,15 @@ pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.E
         return error.CouldNotSetURL;
 
     // Set Payload (if given)
-    if(entry.method == .Post or entry.method == .Put or entry.payload.slice().len > 0) {
-        if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDSIZE, entry.payload.slice().len) != cURL.CURLE_OK)
+    if (entry.method == .Post or entry.method == .Put or entry.payload.slice().len > 0) {
+        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDSIZE, entry.payload.slice().len) != cURL.CURLE_OK)
             return error.CouldNotSetPostDataSize;
-        if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, utils.boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload)) != cURL.CURLE_OK)
+        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, utils.boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload)) != cURL.CURLE_OK)
             return error.CouldNotSetPostData;
     }
 
     // Debug
-    if(args.verbose) {
+    if (args.verbose) {
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
             return error.CouldNotSetVerbose;
     }
@@ -69,15 +69,15 @@ pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.E
     // Pass headers
     var list: ?*cURL.curl_slist = null;
     defer cURL.curl_slist_free_all(list);
-    
+
     var header_buf = utils.initBoundedArray(u8, types.HttpHeader.MAX_VALUE_LEN);
-    for(entry.headers.slice()) |*header| {
+    for (entry.headers.slice()) |*header| {
         try header_buf.resize(0);
         try header.render(header_buf.buffer.len, &header_buf);
         list = cURL.curl_slist_append(list, utils.boundedArrayAsCstr(header_buf.buffer.len, &header_buf));
     }
-    
-    if(cURL.curl_easy_setopt(handle, cURL.CURLOPT_HTTPHEADER, list) != cURL.CURLE_OK)
+
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_HTTPHEADER, list) != cURL.CURLE_OK)
         return error.CouldNotSetHeaders;
 
     //////////////////////
@@ -89,7 +89,6 @@ pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.E
     if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_buffer) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
 
-
     // TODO: Timer start
     // Perform
     if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
@@ -100,18 +99,28 @@ pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.E
     // Handle results
     ////////////////////////
     var http_code: u64 = 0;
-    if(cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code) != cURL.CURLE_OK)
+    if (cURL.curl_easy_getinfo(handle, cURL.CURLINFO_RESPONSE_CODE, &http_code) != cURL.CURLE_OK)
         return error.CouldNewGetResponseCode;
 
     result.response_http_code = http_code;
+
+    var content_type_ptr: [*c]u8 = null;
+    if (cURL.curl_easy_getinfo(handle, cURL.CURLINFO_CONTENT_TYPE, &content_type_ptr) != cURL.CURLE_OK)
+        return error.CouldNewGetResponseContentType;
+
+    // Get Content-Type
+    // TODO: Check of pointer being NULL in case no Content-Type specified?
+    if (content_type_ptr != null) {
+        var content_type_slice = try std.fmt.bufPrint(&result.response_content_type.buffer, "{s}", .{content_type_ptr});
+        try result.response_content_type.resize(content_type_slice.len);
+    }
 
     try result.response_first_1mb.resize(0);
     try result.response_first_1mb.appendSlice(utils.sliceUpTo(u8, response_buffer.items, 0, result.response_first_1mb.capacity()));
 }
 
-
 pub fn httpCodeToString(code: u64) []const u8 {
-    return switch(code) {
+    return switch (code) {
         100 => "Continue",
         101 => "Switching protocols",
         102 => "Processing",

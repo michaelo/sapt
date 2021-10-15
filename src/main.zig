@@ -25,6 +25,7 @@ const config = @import("config.zig");
 const threadpool = @import("threadpool.zig");
 const utils = @import("utils.zig");
 const httpclient = @import("httpclient.zig");
+const pretty = @import("pretty.zig");
 
 const Console = @import("console.zig").Console;
 
@@ -85,6 +86,7 @@ pub const Entry = struct {
 pub const EntryResult = struct {
     num_fails: usize = 0, // Will increase for each failed attempt, relates to "repeats"
     conclusion: bool = false,
+    response_content_type: std.BoundedArray(u8,HttpHeader.MAX_VALUE_LEN) = initBoundedArray(u8, HttpHeader.MAX_VALUE_LEN),
     response_http_code: u64 = 0,
     response_match: bool = false,
     // TODO: Fetch response-length in case it's >1MB?
@@ -120,6 +122,7 @@ pub const AppArguments = struct {
     verbose: bool = false,
     //-d
     show_response_data: bool = false,
+    show_pretty_response_data: bool = false,
     //TODO: --pretty - try to print the response-data in a formatted way based on Content-Type
     //-v=curl, -v=debug, -v=data  -- -v=data == -d, 
     //-r
@@ -178,8 +181,6 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
             pub fn worker(self: *Self) void {
                 var entry_time_start = std.time.milliTimestamp();
                 if(httpclient.processEntry(self.entry, self.args.*, self.result)) {
-                    // self.result.response_first_1mb = tmp_result.response_first_1mb;
-                    // self.result.response_http_code = tmp_result.response_http_code;
                     if(!isEntrySuccessful(self.entry, self.result)) {
                         self.result.num_fails += 1;
                         self.result.conclusion = false;
@@ -211,7 +212,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
             });
         }
 
-        try pool.startAndJoin(); // Can fail if unable to spawn thread
+        try pool.startAndJoin(); // Can fail if unable to spawn thread, but then we are in trouble anyways
         // Evaluate results?
     } else {
         if(args.verbose) debug("Starting singlethreaded test ({d} requests)\n", .{repeats});
@@ -221,8 +222,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
         while(i<repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
             if(httpclient.processEntry(entry, args, result)) {
-                // result.response_first_1mb = tmp_result.response_first_1mb;
-                // result.response_http_code = tmp_result.response_http_code;
+                // debug("Content-Type: {s}\n", .{result.response_content_type.slice()});
                 if(!isEntrySuccessful(entry, result)) {
                     result.num_fails += 1;
                     result.conclusion = false;
@@ -321,7 +321,12 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
     if(!conclusion or args.verbose or args.show_response_data) {
         Console.bold("Response (up to 1024KB):\n", .{});
-        debug("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024*1024)});
+        // TODO: pretty-print based on response Content-Type
+        if(!args.show_pretty_response_data) {
+            debug("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024*1024)});
+        } else {
+            try pretty.getPrettyPrinterByContentType(test_context.result.response_content_type.slice())(std.io.getStdOut().writer(), test_context.result.response_first_1mb.slice());
+        }
     }
 
     if(!conclusion) return error.TestFailed;
@@ -342,8 +347,8 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
     var buf_test = initBoundedArray(u8, 1024*1024);
 
     io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
-        debug("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
-        return error.ParseError;
+        Console.red("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
+        return error.CouldNotReadFile;
     };
 
     var segments = initBoundedArray(parser.PlaybookSegment, 128);
@@ -451,7 +456,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*
         // Process
         //////////////////
         io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
-            debug("ERROR: Could not read file: {s}\n", .{file.constSlice()});
+            Console.red("ERROR: Could not read file: {s}\n", .{file.constSlice()});
             num_failed += 1;
             continue;
         };
@@ -542,7 +547,7 @@ pub fn main() !void {
     }
 
     var stats = mainInner(aa, args[1..]) catch |e| {
-        fatal("Exited due to failure ({s})\n", .{e});
+        fatal("Exited due to failure: {s}\n", .{e});
     };
 
     if(stats.num_fail > 0) {
