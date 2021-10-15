@@ -1,10 +1,10 @@
 /// Module with functions to simple and efficiently provide a pretty-ish view of certain data types: JSON, XML and HTML.
 /// This is intentionally not focused on perfect formatting, and will not employ full tokenizing and such techniques to achieve this.
 /// This is simply intended as a quick way to make the content returned somewhat more easy to inspect.
-/// So, DISCLAIMER: Don't uncritically rely on the formatted output. If in doubt - check the raw response. 
+/// So, DISCLAIMER: Don't uncritically rely on the formatted output. If in doubt - check the raw response.
 /// This is also why formatted output should not be on by default.
 /// 
-/// TBD: Should functions take File-reference, or just always print to stdout?
+/// TOOD: The parsers/printers can be cleaned up quite a bit.
 /// TBD: Support basic syntax highlighting as well?
 const std = @import("std");
 const stdout = std.io.getStdOut().writer();
@@ -12,6 +12,21 @@ const testing = std.testing;
 const debug = std.debug.print;
 const Writer = std.fs.File.Writer;
 
+pub fn getPrettyPrinterByContentType(content_type: []const u8) fn (Writer, []const u8) anyerror!void {
+    if (isContentTypeJson(content_type)) return prettyprintJson;
+    if (isContentTypeXml(content_type)) return prettyprintXml;
+    if (isContentTypeHtml(content_type)) return prettyprintHtml;
+    return passthrough;
+}
+
+test "getPrettyPrinterByContentType" {
+    try testing.expectEqual(prettyprintJson, getPrettyPrinterByContentType("application/json"));
+    try testing.expectEqual(prettyprintHtml, getPrettyPrinterByContentType("text/html"));
+    try testing.expectEqual(prettyprintXml, getPrettyPrinterByContentType("text/xml"));
+    try testing.expectEqual(passthrough, getPrettyPrinterByContentType("something/else"));
+}
+
+/// Writes a newline + a given number of spaces
 fn nl(writer: Writer, num: i64) !void {
     var i = num;
     // TODO: Support CRLF for Win?
@@ -19,7 +34,7 @@ fn nl(writer: Writer, num: i64) !void {
     while (i > 0) : (i -= 1) try writer.print(" ", .{});
 }
 
-fn isJsonType(content_type: []const u8) bool {
+fn isContentTypeJson(content_type: []const u8) bool {
     const types_chunk = [_][]const u8{
         "/json",
     };
@@ -30,7 +45,7 @@ fn isJsonType(content_type: []const u8) bool {
     return false;
 }
 
-fn isXml(content_type: []const u8) bool {
+fn isContentTypeXml(content_type: []const u8) bool {
     const types_chunk = [_][]const u8{ "/xml", "+xml" };
 
     for (types_chunk) |end| {
@@ -39,7 +54,7 @@ fn isXml(content_type: []const u8) bool {
     return false;
 }
 
-fn isHtmlLike(content_type: []const u8) bool {
+fn isContentTypeHtml(content_type: []const u8) bool {
     const types_chunk = [_][]const u8{"/html"};
 
     for (types_chunk) |end| {
@@ -48,40 +63,26 @@ fn isHtmlLike(content_type: []const u8) bool {
     return false;
 }
 
-test "isJsonType" {
-    try testing.expect(isJsonType("application/json"));
-    try testing.expect(!isJsonType("text/html"));
-    try testing.expect(!isJsonType("text/xml"));
+test "isContentTypeJson" {
+    try testing.expect(isContentTypeJson("application/json"));
+    try testing.expect(!isContentTypeJson("text/html"));
+    try testing.expect(!isContentTypeJson("text/xml"));
 }
 
-test "isHtmlLike" {
-    try testing.expect(!isHtmlLike("application/json"));
-    try testing.expect(isHtmlLike("text/html"));
-    try testing.expect(!isHtmlLike("text/xml"));
-    try testing.expect(!isHtmlLike("application/xml"));
-    try testing.expect(!isHtmlLike("application/xhtml+xml"));
+test "isContentTypeHtml" {
+    try testing.expect(isContentTypeHtml("text/html"));
+    try testing.expect(!isContentTypeHtml("application/json"));
+    try testing.expect(!isContentTypeHtml("text/xml"));
+    try testing.expect(!isContentTypeHtml("application/xml"));
+    try testing.expect(!isContentTypeHtml("application/xhtml+xml"));
 }
 
-test "isXml" {
-    try testing.expect(!isXml("application/json"));
-    try testing.expect(!isXml("text/html"));
-    try testing.expect(isXml("text/xml"));
-    try testing.expect(isXml("application/xml"));
-    try testing.expect(isXml("application/xhtml+xml"));
-}
-
-pub fn getPrettyPrinterByContentType(content_type: []const u8) fn (Writer, []const u8) anyerror!void {
-    if (isJsonType(content_type)) return prettyprintJson;
-    if (isXml(content_type)) return prettyprintXml;
-    if (isHtmlLike(content_type)) return prettyprintHtml;
-    return passthrough;
-}
-
-test "getPrettyPrinterByContentType" {
-    try testing.expectEqual(prettyprintJson, getPrettyPrinterByContentType("application/json"));
-    try testing.expectEqual(prettyprintHtml, getPrettyPrinterByContentType("text/html"));
-    try testing.expectEqual(prettyprintXml, getPrettyPrinterByContentType("text/xml"));
-    try testing.expectEqual(passthrough, getPrettyPrinterByContentType("something/else"));
+test "isContentTypeXml" {
+    try testing.expect(isContentTypeXml("text/xml"));
+    try testing.expect(isContentTypeXml("application/xml"));
+    try testing.expect(isContentTypeXml("application/xhtml+xml"));
+    try testing.expect(!isContentTypeXml("application/json"));
+    try testing.expect(!isContentTypeXml("text/html"));
 }
 
 /// Simple passes through with not formatting actions
@@ -94,14 +95,9 @@ fn passthrough(writer: Writer, data: []const u8) !void {
 fn prettyprintJson(writer: Writer, data: []const u8) anyerror!void {
     // Assume well-structured json - do an as-simple-as-possible pretty-print without semantically parsing
     // For each new line, start with padding the indent_level
-    // var specialStack = try std.BoundedArray(Specials, 128).init(0);
-    // Need to look ahead;
 
     var indent_level: i64 = 0;
-    // TBD: This currently only makes sense if the content has no formatting...´
-    //      We should check if the desired additional chars we output is not already at the expected location. ie: printIfNotNext(...). And outside of quotes: ignore all whitespace
-    // var in_string = false;
-    var i:usize = 0;
+    var i: usize = 0;
     while (i < data.len) : (i += 1) {
         var char = data[i];
         switch (char) {
@@ -135,8 +131,8 @@ fn prettyprintJson(writer: Writer, data: []const u8) anyerror!void {
             '"' => {
                 // Dump all until first non-escaped "
                 try writer.print("{c}", .{data[i]});
-                i+=1;
-                while (i>0 and !(data[i] == '"' and data[i - 1] != '\\')) : ( i += 1 ) {
+                i += 1;
+                while (i > 0 and !(data[i] == '"' and data[i - 1] != '\\')) : (i += 1) {
                     // continue;
                     try writer.print("{c}", .{data[i]});
                 }
@@ -150,11 +146,11 @@ fn prettyprintJson(writer: Writer, data: []const u8) anyerror!void {
             },
         }
     }
-    
+
     try writer.writeAll("\n");
 }
 
-test "pretty-print JSON" {
+test "prettyprintJson" {
     {
         var data =
             \\{"key":"value","key2":[1,2,3],"key3":{},"key4":5,"key5":[{},{"inner":["hepp"]}]}
@@ -172,7 +168,7 @@ test "pretty-print JSON" {
             \\3],
             \\    "key3":{},
             \\    "key4":5,
-            \\    "key5":[{},{"inner  with  space":["hepp"]}]
+            \\    "key5":[{},{"inner  with  space":["hepp"]}]
             \\}
         ;
 
@@ -194,62 +190,85 @@ test "pretty-print JSON" {
 /// Super-naive pretty-printer for XML data
 /// Assumes a string of well-formed XML and attempts to print it in a human readable structure
 fn prettyprintXml(writer: Writer, data: []const u8) anyerror!void {
-    // For each opening element: indent
-    // For each closing element: de-indent
-    // TODO: Sequence of closing-tags will now be seperated by extra nl
-    // TODO: Handle cdata and comments
-    const State = enum {
-        Outside,
-        EnteredOpeningTag,
-        EnteredClosingTag,
-    };
-
-    var state: State = .Outside;
-
+    // Need to detect element, start, and possibly end unless self-closed.
+    // start: (< + non-space) + (/> | > | space)
+    // Self-closable elements: !doctype, input, link, meta
+    // LE+Indent when non-self-closable
+    // Existing formatting: If text between elements, trail surrounding space. If no text between elements: trim all space. All Newlines are ignored(?)
+    // Now: Don't bother with unmatched tags: open-tags increases, close-tags decreases
+    // Embedded data: In-file js and css: Leave as it is
     var indent_level: i64 = 0;
     var i: usize = 0;
-    while (i < data.len - 1) : (i += 1) switch (data[i]) {
+    var current_tag: []const u8 = undefined;
+    var is_close_tag: bool = false;
+    var is_in_tag: bool = false;
+    var is_in_text: bool = false; // Keep whitespace etc while inside text-segment
+    while (i < data.len-1) : (i += 1) switch (data[i]) {
+        // Start of tag, can be either opening or closing tag
         '<' => {
+            is_in_text = false;
+            is_in_tag = true;
+            // If close-tag
             if (data[i + 1] == '/') {
-                state = .EnteredClosingTag;
+                is_close_tag = true;
                 indent_level -= 4;
                 try nl(writer, indent_level);
+                try writer.print("{c}", .{data[i]});
+                try writer.print("{c}", .{data[i+1]});
+                i+=1;
             } else {
-                state = .EnteredOpeningTag;
-                try nl(writer, indent_level);
+                is_close_tag = false;
+                current_tag = getTagName(data[i + 1 ..]);
+                if(std.mem.eql(u8, current_tag, "!--")) try nl(writer, indent_level);
+                try writer.print("{c}", .{data[i]});
             }
-            try writer.print("{c}", .{data[i]});
         },
+        // End of tag, can be either opening or closing tag
         '>' => {
+            is_in_tag = false;
             try writer.print("{c}", .{data[i]});
-
-            if (state == .EnteredOpeningTag) {
-                if (data[i - 1] != '/' and data[i - 1] != '?') {
-                    indent_level += 4;
+            if (!is_close_tag and isHtmlOrXmlRawContentsElement(current_tag)) {
+                // Find closing-tag of raw-contents-element
+                var buf: [128]u8 = undefined;
+                var close_tag = try std.fmt.bufPrint(buf[0..], "</{s}", .{current_tag});
+                
+                if (std.mem.indexOf(u8, data[i..], close_tag)) |end_of_raw_area_idx| {
+                    var j: usize = 1;
+                    while (j < end_of_raw_area_idx - 1) : (j += 1) {
+                        try writer.print("{c}", .{data[i + j]});
+                    }
+                    i += j - 1;
                 }
-                try nl(writer, indent_level);
-                state = .Outside;
-            } else if (state == .EnteredClosingTag) {
-                state = .Outside;
             }
+            // Only increase indentation for open-tags
+            if (data[i-1] != '/' and !isHtmlOrXmlSelfclosingElement(current_tag) and !is_close_tag) {
+                indent_level += 4;
+            } else if (is_close_tag) {
+                // indent_level -= 4;
+            }
+            try nl(writer, indent_level);
         },
+        // Ignore all newlines
         '\n' => {
-            continue;
-        },
-        ' ', '\t' => {
-            // TODO: Can also skip if there are multiple spaces
-            if (state == .Outside) continue;
+            if (!is_in_tag) continue;
             try writer.print("{c}", .{data[i]});
         },
+        // Ignore whitespace between elements, and between elements and text-chunks
+        ' ', '\t' => {
+            if (!is_in_tag and !is_in_text) continue;
+            try writer.print("{c}", .{data[i]});
+        },
+        // All other characters
         else => {
+            if(!is_in_tag) is_in_text = true;
             try writer.print("{c}", .{data[i]});
         },
     };
-    try writer.print("{c}", .{data[data.len - 1]});
-    try writer.writeAll("\n");
+    try writer.print("{c}", .{data[i]});
+    try writer.print("\n", .{});
 }
 
-test "pretty-print XML" {
+test "prettyprintXml" {
     {
         var data =
             \\<?xml version="1.0" encoding="UTF-8"?><some><element>content</element><sibling><selfclosed />siblingcontent</sibling></some>
@@ -279,6 +298,10 @@ test "pretty-print XML" {
             \\    <sibling>
             \\        <selfclosed />
             \\        siblingcontent
+            \\        <!-- Comment -->
+            \\        <![CDATA[
+            \\        characters with markup
+            \\        ]]>
             \\    </sibling>
             \\</some>
         ;
@@ -288,25 +311,25 @@ test "pretty-print XML" {
     }
 }
 
-/// Returns true for any chars that are allowed for an HMTL-tag
-fn is_valid_tag_char(char: u8) bool {
+/// Returns true for any chars that are allowed for an HTML or XML-tag
+fn isValidTagChar(char: u8) bool {
     return switch (char) {
-        'A'...'Z', 'a'...'z', '0'...'9', ':', '-', '!' => true,
+        'A'...'Z', 'a'...'z', '0'...'9', ':', '-', '!', '?', '[' => true,
         else => false,
     };
 }
 
 /// Asssumes buf marks the start of the tag-name (i.e. after '<'), then returns a slice of the tag-name
-fn get_tag_name(buf: []const u8) []const u8 {
+fn getTagName(buf: []const u8) []const u8 {
     var i: usize = 0;
-    while (i < buf.len and is_valid_tag_char(buf[i])) : (i += 1) {}
+    while (i < buf.len and isValidTagChar(buf[i])) : (i += 1) {}
     // debug("i: {d}\n", .{i});
     return buf[0..i];
 }
 
 /// Returns true if the provided tag-name is one of the self-contained HTML-elements
-fn is_html_self_closing_element(el: []const u8) bool {
-    const candidate_els = [_][]const u8{ "!doctype", "input", "link", "meta", "!--" };
+fn isHtmlOrXmlSelfclosingElement(el: []const u8) bool {
+    const candidate_els = [_][]const u8{ "!doctype", "input", "link", "meta", "!--", "?xml", "![CDATA[" };
 
     for (candidate_els) |cand_el| {
         if (std.mem.eql(u8, cand_el, el)) {
@@ -317,10 +340,11 @@ fn is_html_self_closing_element(el: []const u8) bool {
 }
 
 /// Returns true for HTML-elements that allow arbitratry child-content, e.g. script and style
-fn is_raw_contents_element(el: []const u8) bool {
+fn isHtmlOrXmlRawContentsElement(el: []const u8) bool {
     const candidate_els = [_][]const u8{
         "script",
         "style",
+        "![CDATA["
     };
 
     for (candidate_els) |cand_el| {
@@ -334,67 +358,7 @@ fn is_raw_contents_element(el: []const u8) bool {
 /// Super-naive pretty-printer for HTML data
 /// Assumes a string of well-formed HTML and attempts to print it in a human readable structure
 /// Your HTML is not sacred to me...
-fn prettyprintHtml(writer: Writer, data: []const u8) anyerror!void {
-    // Need to detect element, start, and possibly end unless self-closed.
-    // start: (< + non-space) + (/> | > | space)
-    // Self-closable elements: !doctype, input, link, meta
-    // LE+Indent when non-self-closable
-    // Existing formatting: If text between elements, trail surrounding space. If no text between elements: trim all space. All Newlines are ignored(?)
-    // Now: Don't bother with unmatched tags: open-tags increases, close-tags decreases
-    // Embedded data: In-file js and css: Leave as it is
-    var indent_level: i64 = 0;
-    var i: usize = 0;
-    var current_tag: []const u8 = undefined;
-    var is_close_tag: bool = false;
-    var is_in_tag: bool = false;
-    while (i < data.len) : (i += 1) switch (data[i]) {
-        '<' => {
-            is_in_tag = true;
-            if (data[i + 1] == '/') {
-                is_close_tag = true;
-                indent_level -= 4;
-                try nl(writer, indent_level);
-                try writer.print("{c}", .{data[i]});
-                i += 1;
-            } else {
-                is_close_tag = false;
-            }
-            current_tag = get_tag_name(data[i + 1 ..]);
-
-            try writer.print("{c}", .{data[i]});
-        },
-        '>' => {
-            is_in_tag = false;
-            try writer.print("{c}", .{data[i]});
-            if(!is_close_tag and is_raw_contents_element(current_tag)) {
-                var buf: [128]u8 = undefined;
-                var close_tag = try std.fmt.bufPrint(buf[0..], "</{s}", .{current_tag});
-                if(std.mem.indexOf(u8, data[i..], close_tag)) |end_of_raw_area| {
-                    var j: usize = 1;
-                    while(j<end_of_raw_area-1) : ( j += 1 ) {
-                        try writer.print("{c}", .{data[i+j]});
-                    }
-                    i += j-1;
-                }
-            }
-            if (!is_html_self_closing_element(current_tag)) {
-                if (!is_close_tag) indent_level += 4;
-            }
-            try nl(writer, indent_level);
-        },
-        '\n' => {
-            continue;
-        },
-        ' ' => {
-            if (!is_in_tag) continue;
-            try writer.print("{c}", .{data[i]});
-        },
-        else => {
-            try writer.print("{c}", .{data[i]});
-        },
-    };
-    try writer.print("\n", .{});
-}
+const prettyprintHtml = prettyprintXml;
 
 test "prettyprintHtml" {
     {
@@ -437,13 +401,14 @@ test "prettyprintHtml" {
             \\</head>
             \\
             \\<body id="top">
-            \\    <!-- Comment -->
             \\    <app-root></app-root>
+            \\    <!-- Comment -->
+            \\    <p>Some content here</p>
             \\</body>
             \\
             \\</html>
         ;
 
-        try prettyprintHtml(stdout, data);
+        try prettyprintXml(stdout, data);
     }
 }
