@@ -6,6 +6,7 @@
 /// 
 /// TOOD: The parsers/printers can be cleaned up quite a bit.
 /// TBD: Support basic syntax highlighting as well?
+/// TBD: Can add basic CSS and JS-formatters as well to support in-filed <style> and <script>
 const std = @import("std");
 const stdout = std.io.getStdOut().writer();
 const testing = std.testing;
@@ -129,11 +130,11 @@ fn prettyprintJson(writer: Writer, data: []const u8) anyerror!void {
                 try nl(writer, indent_level);
             },
             '"' => {
+                // Assumes the first " we meet isn't an escaped one
                 // Dump all until first non-escaped "
                 try writer.print("{c}", .{data[i]});
                 i += 1;
-                while (i > 0 and !(data[i] == '"' and data[i - 1] != '\\')) : (i += 1) {
-                    // continue;
+                while (!(data[i] == '"' and data[i - 1] != '\\')) : (i += 1) {
                     try writer.print("{c}", .{data[i]});
                 }
                 try writer.print("{c}", .{data[i]});
@@ -369,7 +370,7 @@ test "prettyprintHtml" {
         try prettyprintHtml(stdout, data);
     }
 
-    // Inline CSS
+    // With inline CSS and inline JS
     {
         var data =
             \\<!doctype html>
@@ -395,6 +396,13 @@ test "prettyprintHtml" {
             \\        /* comment */
             \\        parent>child {}
             \\    </style>
+            \\    <script>
+            \\      function something_formatted() {
+            \\          console.log("Woop");
+            \\      }
+            \\      
+            \\      function something_unformatted() { console.log("Woop"); }
+            \\    </script>
             \\    <script src="https://some.service/app.js"></script>
             \\    <link rel="stylesheet" href="https://some.service/app.css">
             \\    <link rel="manifest" href="/manifest.json">

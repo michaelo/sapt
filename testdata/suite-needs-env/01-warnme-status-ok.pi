@@ -1,0 +1,2 @@
+> GET https://{{SERVICE_API_HOST}}/api/status
+< 200 "summarized":false

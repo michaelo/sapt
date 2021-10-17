@@ -14,7 +14,7 @@ pub fn printHelp(full: bool) void {
         \\
         \\{0s} v{1s} - Simple API Tester
         \\
-        \\Usage: {0s} [arguments] file1 [file2 ... fileN]
+        \\Usage: {0s} [arguments] [file1 file2 ... fileN]
         \\
     , .{ config.APP_NAME, config.APP_VERSION });
 

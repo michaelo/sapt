@@ -1,9 +1,9 @@
-// TODO:
-// * Clean up types wrt to BoundedArray-variants used for files, lists of files etc.
-//   * Anything string-related; we can probably assume u8 for any custom functions at least
-// * Determine design/strategy for handling .env-files
-// * Establish how to proper handle C-style strings wrt to curl-interop
-// 
+/// Main file for application.
+/// TODO:
+/// * Clean up types wrt to BoundedArray-variants used for files, lists of files etc.
+///   * Anything string-related; we can probably assume u8 for any custom functions at least
+/// * Establish how to proper handle C-style strings wrt to curl-interop
+/// * 
 const std = @import("std");
 const fs = std.fs;
 
@@ -18,14 +18,14 @@ pub const log_level: std.log.Level = .debug;
 const testing = std.testing;
 
 const argparse = @import("argparse.zig");
+const config = @import("config.zig");
+const httpclient = @import("httpclient.zig");
 const io = @import("io.zig");
 const kvstore = @import("kvstore.zig");
 const parser = @import("parser.zig");
-const config = @import("config.zig");
+const pretty = @import("pretty.zig");
 const threadpool = @import("threadpool.zig");
 const utils = @import("utils.zig");
-const httpclient = @import("httpclient.zig");
-const pretty = @import("pretty.zig");
 
 const Console = @import("console.zig").Console;
 
@@ -447,7 +447,21 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*
     var num_failed: u64 = 0;
     const time_start = std.time.milliTimestamp();
 
+    // Used to check if we enter a folder
+    var folder_local_vars: kvstore.KvStore = undefined;
+    var current_folder: []const u8 = undefined;
     for (args.files.slice()) |file| {
+        // If new folder: clear folder_local_vars
+        if(!std.mem.eql(u8, current_folder, io.getParent(file.constSlice()))) {
+            folder_local_vars = kvstore.KvStore{};
+            current_folder = io.getParent(file.constSlice());
+        }
+
+        // .env: load
+        if(std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_ENV)) {
+            Console.grey("Loading .env: {s}\n", .{file.constSlice()});
+            try folder_local_vars.addFromOther(try envFileToKvStore(fs.cwd(), file.constSlice()), .KeepFirst);
+        }
         if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
         
         num_processed += 1;
@@ -462,6 +476,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*
         };
 
         // Expand all variables
+        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &folder_local_vars) catch {};
         parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars) catch {};
         parser.expandVariablesAndFunctions(buf.buffer.len, &buf, input_vars) catch {};
 
