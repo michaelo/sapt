@@ -36,7 +36,7 @@ const ExtractionEntry = types.ExtractionEntry;
 
 const initBoundedArray = utils.initBoundedArray;
 
-pub const errors = error {
+pub const errors = error{
     Ok,
     ParseError,
     TestFailed,
@@ -71,14 +71,14 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
 }
 
 pub const Entry = struct {
-    name: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
+    name: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
     method: HttpMethod = undefined,
-    url: std.BoundedArray(u8,2048) = initBoundedArray(u8, 2048),
-    headers: std.BoundedArray(HttpHeader,32) = initBoundedArray(HttpHeader, 32),
-    payload: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
+    url: std.BoundedArray(u8, 2048) = initBoundedArray(u8, 2048),
+    headers: std.BoundedArray(HttpHeader, 32) = initBoundedArray(HttpHeader, 32),
+    payload: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
     expected_http_code: u64 = 0, // 0 == don't care
-    expected_response_regex: std.BoundedArray(u8,1024) = initBoundedArray(u8, 1024),
-    extraction_entries: std.BoundedArray(ExtractionEntry,32) = initBoundedArray(ExtractionEntry, 32),
+    expected_response_regex: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
+    extraction_entries: std.BoundedArray(ExtractionEntry, 32) = initBoundedArray(ExtractionEntry, 32),
     repeats: usize = 1,
 };
 
@@ -86,11 +86,11 @@ pub const Entry = struct {
 pub const EntryResult = struct {
     num_fails: usize = 0, // Will increase for each failed attempt, relates to "repeats"
     conclusion: bool = false,
-    response_content_type: std.BoundedArray(u8,HttpHeader.MAX_VALUE_LEN) = initBoundedArray(u8, HttpHeader.MAX_VALUE_LEN),
+    response_content_type: std.BoundedArray(u8, HttpHeader.MAX_VALUE_LEN) = initBoundedArray(u8, HttpHeader.MAX_VALUE_LEN),
     response_http_code: u64 = 0,
     response_match: bool = false,
     // TODO: Fetch response-length in case it's >1MB?
-    response_first_1mb: std.BoundedArray(u8,1024*1024) = initBoundedArray(u8, 1024*1024),
+    response_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
 };
 
 const ProcessStatistics = struct {
@@ -100,10 +100,7 @@ const ProcessStatistics = struct {
     time_avg: i64 = undefined,
 };
 
-const TestContext = struct {
-    entry: Entry = .{},
-    result: EntryResult = .{}
-};
+const TestContext = struct { entry: Entry = .{}, result: EntryResult = .{} };
 
 const ExecutionStats = struct {
     num_tests: u64 = 0,
@@ -124,32 +121,31 @@ pub const AppArguments = struct {
     show_response_data: bool = false,
     show_pretty_response_data: bool = false,
     //TODO: --pretty - try to print the response-data in a formatted way based on Content-Type
-    //-v=curl, -v=debug, -v=data  -- -v=data == -d, 
+    //-v=curl, -v=debug, -v=data  -- -v=data == -d,
     //-r
     recursive: bool = false,
     //-m allows for concurrent requests for repeated tests
     multithreaded: bool = false,
     //-i=<file>
-    input_vars_file: std.BoundedArray(u8,config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
+    input_vars_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
     //-o=<file>
-    output_file: std.BoundedArray(u8,config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
+    output_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
     //-f=<file>
-    playbook_file: std.BoundedArray(u8,config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
+    playbook_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
     //-s
     silent: bool = false,
     // ...
-    files: std.BoundedArray(FilePathEntry,128) = initBoundedArray(FilePathEntry, 128),
+    files: std.BoundedArray(FilePathEntry, 128) = initBoundedArray(FilePathEntry, 128),
 };
 
-
 fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
-    if(entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
+    if (entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
         result.response_match = false;
         return false;
     }
     result.response_match = true;
 
-    if(entry.expected_http_code != 0 and entry.expected_http_code != result.response_http_code) return false;
+    if (entry.expected_http_code != 0 and entry.expected_http_code != result.response_http_code) return false;
 
     return true;
 }
@@ -165,11 +161,11 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
     stats.time_max = 0;
     stats.time_min = std.math.maxInt(i64);
 
-    if(args.multithreaded and repeats > 1) {
-        if(args.verbose) debug("Starting multithreaded test ({d} threads working total {d} requests)\n", .{try std.Thread.getCpuCount(), repeats});
+    if (args.multithreaded and repeats > 1) {
+        if (args.verbose) debug("Starting multithreaded test ({d} threads working total {d} requests)\n", .{ try std.Thread.getCpuCount(), repeats });
 
         // We start naively, by sharing data, although it's not high-performance optimal, but
-        // it's a starting point from which we can improve once we've identifed all pitfalls 
+        // it's a starting point from which we can improve once we've identifed all pitfalls
         const Payload = struct {
             const Self = @This();
             // TODO: Add mutexes
@@ -180,8 +176,8 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
 
             pub fn worker(self: *Self) void {
                 var entry_time_start = std.time.milliTimestamp();
-                if(httpclient.processEntry(self.entry, self.args.*, self.result)) {
-                    if(!isEntrySuccessful(self.entry, self.result)) {
+                if (httpclient.processEntry(self.entry, self.args.*, self.result)) {
+                    if (!isEntrySuccessful(self.entry, self.result)) {
                         self.result.num_fails += 1;
                         self.result.conclusion = false;
                     } else {
@@ -202,8 +198,8 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
         // Setup and execute pool
         // const coreCount = try std.Thread.getCpuCount();
         var pool = threadpool.ThreadPool(Payload, 1000, Payload.worker).init(try std.Thread.getCpuCount());
-        var i: usize=0;
-        while(i<repeats) : (i += 1) {
+        var i: usize = 0;
+        while (i < repeats) : (i += 1) {
             try pool.addWork(Payload{
                 .stats = stats,
                 .entry = entry,
@@ -215,15 +211,15 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
         try pool.startAndJoin(); // Can fail if unable to spawn thread, but then we are in trouble anyways
         // Evaluate results?
     } else {
-        if(args.verbose) debug("Starting singlethreaded test ({d} requests)\n", .{repeats});
+        if (args.verbose) debug("Starting singlethreaded test ({d} requests)\n", .{repeats});
         const time_total_start = std.time.milliTimestamp();
 
-        var i: usize=0;
-        while(i<repeats) : (i += 1) {
+        var i: usize = 0;
+        while (i < repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
-            if(httpclient.processEntry(entry, args, result)) {
+            if (httpclient.processEntry(entry, args, result)) {
                 // debug("Content-Type: {s}\n", .{result.response_content_type.slice()});
-                if(!isEntrySuccessful(entry, result)) {
+                if (!isEntrySuccessful(entry, result)) {
                     result.num_fails += 1;
                     result.conclusion = false;
                 } else {
@@ -239,20 +235,19 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
             stats.time_min = std.math.min(entry_time, stats.time_min);
         }
         stats.time_total = std.time.milliTimestamp() - time_total_start;
-
     }
 
     stats.time_avg = @divTrunc(stats.time_total, @intCast(i64, repeats));
 }
 
 fn extractExtractionEntries(entry: Entry, result: EntryResult, store: *kvstore.KvStore) !void {
-        // Extract to variables
-    for(entry.extraction_entries.constSlice()) |v| {
-        if(parser.expressionExtractor(result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
+    // Extract to variables
+    for (entry.extraction_entries.constSlice()) |v| {
+        if (parser.expressionExtractor(result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
             // Got match
             try store.add(v.name.constSlice(), expression_result.result);
         } else {
-            Console.red("Could not find match for '{s}={s}'\n", .{v.name.constSlice(), v.expression.constSlice()});
+            Console.red("Could not find match for '{s}={s}'\n", .{ v.name.constSlice(), v.expression.constSlice() });
             return error.UnableToExtractExtractionEntry;
         }
     }
@@ -260,18 +255,18 @@ fn extractExtractionEntries(entry: Entry, result: EntryResult, store: *kvstore.K
 
 /// Main do'er to do anything related to orchestrating the execution of the entry, repeats and outputting the results
 /// Common to both regular flow (entries as arguments) and playbooks
-fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32, line_idx_offset: usize) !void {
+fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u64, entry_name: []const u8, entry_buf: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore, repeats: u32, line_idx_offset: usize) !void {
     test_context.* = .{}; // Reset
     _ = input_vars;
     test_context.entry.repeats = repeats;
 
     // Do
     var stats: ProcessStatistics = .{};
-    if(args.verbose) debug("Processing entry: {s}\n", .{entry_name});
-    
+    if (args.verbose) debug("Processing entry: {s}\n", .{entry_name});
+
     processEntryMain(test_context, args, entry_buf, repeats, &stats, line_idx_offset) catch |err| {
         // TODO: Switch the errors and give helpful output
-        Console.red("{d}/{d}: {s:<64}            : Process error {s}\n", .{idx, total, entry_name, err});
+        Console.red("{d}/{d}: {s:<64}            : Process error {s}\n", .{ idx, total, entry_name, err });
         return error.CouldNotProcessEntry;
     };
 
@@ -280,17 +275,17 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
     // Output neat and tidy output, respectiong args .silent, .data and .verbose
     if (conclusion) { // Success
-        Console.green("{d}/{d}: {s:<64}            : OK (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code)});
+        Console.green("{d}/{d}: {s:<64}            : OK (HTTP {d} - {s})\n", .{ idx, total, entry_name, test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code) });
     } else { // Errors
-        Console.red("{d}/{d}: {s:<64}            : ERROR (HTTP {d} - {s})\n", .{idx, total, entry_name, test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code)});
+        Console.red("{d}/{d}: {s:<64}            : ERROR (HTTP {d} - {s})\n", .{ idx, total, entry_name, test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code) });
     }
 
     // Stats
-    if(repeats == 1) {
+    if (repeats == 1) {
         Console.grey("  time: {}ms\n", .{stats.time_total});
     } else {
-        Console.grey("  {} iterations. {} OK, {} Error\n", .{repeats, repeats - test_context.result.num_fails, test_context.result.num_fails});
-        Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg});
+        Console.grey("  {} iterations. {} OK, {} Error\n", .{ repeats, repeats - test_context.result.num_fails, test_context.result.num_fails });
+        Console.grey("  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{ stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg });
     }
 
     if (conclusion) {
@@ -299,52 +294,52 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
         try extractExtractionEntries(test_context.entry, test_context.result, extracted_vars);
 
         // Print all stored variables
-        if(args.verbose and extracted_vars.store.slice().len > 0) {
+        if (args.verbose and extracted_vars.store.slice().len > 0) {
             debug("Values extracted from response:\n", .{});
-            debug("-"**80 ++ "\n", .{});
-            for(extracted_vars.store.slice()) |v| {
-                debug("* {s}={s}\n", .{v.key.constSlice(), v.value.constSlice()});
+            debug("-" ** 80 ++ "\n", .{});
+            for (extracted_vars.store.slice()) |v| {
+                debug("* {s}={s}\n", .{ v.key.constSlice(), v.value.constSlice() });
             }
-            debug("-"**80 ++ "\n", .{});
+            debug("-" ** 80 ++ "\n", .{});
         }
     } else {
         // num_failed += 1;
-        Console.plain("{s} {s:<64}\n", .{test_context.entry.method, test_context.entry.url.slice()});
-        if(test_context.result.response_http_code != test_context.entry.expected_http_code) {
-            Console.red("Fault: Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{test_context.entry.expected_http_code, httpclient.httpCodeToString(test_context.entry.expected_http_code), test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code)});
+        Console.plain("{s} {s:<64}\n", .{ test_context.entry.method, test_context.entry.url.slice() });
+        if (test_context.result.response_http_code != test_context.entry.expected_http_code) {
+            Console.red("Fault: Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{ test_context.entry.expected_http_code, httpclient.httpCodeToString(test_context.entry.expected_http_code), test_context.result.response_http_code, httpclient.httpCodeToString(test_context.result.response_http_code) });
         }
 
-        if(!test_context.result.response_match) {
+        if (!test_context.result.response_match) {
             Console.red("Fault: Match requirement '{s}' was not successful\n", .{test_context.entry.expected_response_regex.constSlice()});
         }
     }
 
-    if(!conclusion or args.verbose or args.show_response_data) {
+    if (!conclusion or args.verbose or args.show_response_data) {
         Console.bold("Response (up to 1024KB):\n", .{});
         // TODO: pretty-print based on response Content-Type
-        if(!args.show_pretty_response_data) {
-            debug("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024*1024)});
+        if (!args.show_pretty_response_data) {
+            debug("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024 * 1024)});
         } else {
             try pretty.getPrettyPrinterByContentType(test_context.result.response_content_type.slice())(std.io.getStdOut().writer(), test_context.result.response_first_1mb.slice());
         }
     }
 
-    if(!conclusion) return error.TestFailed;
+    if (!conclusion) return error.TestFailed;
 }
 
 fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: parser.PlaybookSegmentType) u64 {
     var result: u64 = 0;
-    for(segments) |segment| {
-        if(segment.segment_type == segment_type) result += 1;
+    for (segments) |segment| {
+        if (segment.segment_type == segment_type) result += 1;
     }
     return result;
 }
 
-fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
+fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     // Load playbook
     // var scrap: [4*1024]u8 = undefined;
-    var buf_playbook = initBoundedArray(u8, 1024*1024); // Att: this must be kept as it is used to look up data from for the segments
-    var buf_test = initBoundedArray(u8, 1024*1024);
+    var buf_playbook = initBoundedArray(u8, 1024 * 1024); // Att: this must be kept as it is used to look up data from for the segments
+    var buf_test = initBoundedArray(u8, 1024 * 1024);
 
     io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
         Console.red("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
@@ -364,12 +359,14 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
     var total_num_tests = getNumOfSegmentType(segments.constSlice(), .TestInclude) + getNumOfSegmentType(segments.constSlice(), .TestRaw);
     const time_start = std.time.milliTimestamp();
     // Pass through each item and process according to type
-    for(segments.constSlice()) |segment| {
+    for (segments.constSlice()) |segment| {
         try buf_test.resize(0);
-        if(args.verbose) debug("Processing segment type: {s}, line: {d}\n", .{segment.segment_type, segment.line_start});
+        if (args.verbose) debug("Processing segment type: {s}, line: {d}\n", .{ segment.segment_type, segment.line_start });
 
-        switch(segment.segment_type) {
-            .Unknown => { unreachable; },
+        switch (segment.segment_type) {
+            .Unknown => {
+                unreachable;
+            },
             .TestInclude, .TestRaw => {
                 // We got a test.
                 // For file-based tests: read the file to a buffer
@@ -380,11 +377,11 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                 var name_slice: []u8 = undefined;
                 var repeats: u32 = 1;
 
-                if(segment.segment_type == .TestInclude) {
+                if (segment.segment_type == .TestInclude) {
                     // TODO: how to limit max length? will 128<s pad the result?
                     name_slice = try std.fmt.bufPrint(&name_buf, "{s}", .{utils.constSliceUpTo(u8, segment.slice, 0, name_buf.len)});
                     repeats = segment.meta.TestInclude.repeats;
-                    if(args.verbose) debug("Processing: {s}\n", .{segment.slice});
+                    if (args.verbose) debug("Processing: {s}\n", .{segment.slice});
                     // Load from file and parse
                     io.readFileRel(u8, buf_test.buffer.len, playbook_basedir, segment.slice, &buf_test) catch {
                         parser.parseErrorArg("Could not read file", .{}, segment.line_start, 0, buf_test.constSlice(), segment.slice);
@@ -403,23 +400,22 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                 parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, input_vars) catch {};
 
                 // Execute the test
-                if(processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf_test.constSlice(), args, input_vars, extracted_vars, repeats, segment.line_start)) {
+                if (processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf_test.constSlice(), args, input_vars, extracted_vars, repeats, segment.line_start)) {
                     // OK
                 } else |_| {
                     num_failed += 1;
                 }
-
             },
             .EnvInclude => {
                 // Load from file and parse
-                if(args.verbose) debug("Loading env-file: '{s}'\n", .{segment.slice});
+                if (args.verbose) debug("Loading env-file: '{s}'\n", .{segment.slice});
                 try input_vars.addFromOther((try envFileToKvStore(playbook_basedir, segment.slice)), .Fail);
             },
             .EnvRaw => {
                 // Parse key=value directly
-                if(args.verbose) debug("Loading in-file env at line {d}\n", .{segment.line_start});
+                if (args.verbose) debug("Loading in-file env at line {d}\n", .{segment.line_start});
                 try input_vars.addFromBuffer(segment.slice);
-            }
+            },
         }
         // debug("{d}: {s}: {s}\n", .{idx, segment.segment_type, segment.slice});
     }
@@ -430,19 +426,18 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
         \\------------------
         \\FINISHED - total time: {d}s
         \\
-        , .{num_processed-num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp()-time_start)/1000}
-    );
+    , .{ num_processed - num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
 
     return ExecutionStats{
         .num_tests = num_processed,
-        .num_success = num_processed-num_failed,
+        .num_success = num_processed - num_failed,
         .num_fail = num_failed,
     };
 }
 
 // Regular path for tests passed as arguments
-fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
-    var buf = initBoundedArray(u8, 1024*1024);
+fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
+    var buf = initBoundedArray(u8, 1024 * 1024);
     var num_processed: u64 = 0;
     var num_failed: u64 = 0;
     const time_start = std.time.milliTimestamp();
@@ -452,18 +447,18 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*
     var current_folder: []const u8 = undefined;
     for (args.files.slice()) |file| {
         // If new folder: clear folder_local_vars
-        if(!std.mem.eql(u8, current_folder, io.getParent(file.constSlice()))) {
+        if (!std.mem.eql(u8, current_folder, io.getParent(file.constSlice()))) {
             folder_local_vars = kvstore.KvStore{};
             current_folder = io.getParent(file.constSlice());
         }
 
         // .env: load
-        if(std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_ENV)) {
+        if (std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_ENV)) {
             Console.grey("Loading .env: {s}\n", .{file.constSlice()});
             try folder_local_vars.addFromOther(try envFileToKvStore(fs.cwd(), file.constSlice()), .KeepFirst);
         }
-        if(!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
-        
+        if (!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
+
         num_processed += 1;
 
         //////////////////
@@ -480,7 +475,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*
         parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars) catch {};
         parser.expandVariablesAndFunctions(buf.buffer.len, &buf, input_vars) catch {};
 
-        if(processAndEvaluateEntryFromBuf(test_context, num_processed, args.files.slice().len, file.constSlice(), buf.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
+        if (processAndEvaluateEntryFromBuf(test_context, num_processed, args.files.slice().len, file.constSlice(), buf.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
             // OK
         } else |_| {
             num_failed += 1;
@@ -492,12 +487,11 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars:*
         \\------------------
         \\FINISHED - total time: {d}s
         \\
-        , .{num_processed-num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp()-time_start)/1000}
-    );
+    , .{ num_processed - num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
 
     return ExecutionStats{
         .num_tests = num_processed,
-        .num_success = num_processed-num_failed,
+        .num_success = num_processed - num_failed,
         .num_fail = num_failed,
     };
 }
@@ -509,7 +503,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     // Scrap-buffer to use throughout tests
     var test_context = try allocator.create(TestContext);
 
-    var parsed_args = argparse.parseArgs(args) catch |e| switch(e) {
+    var parsed_args = argparse.parseArgs(args) catch |e| switch (e) {
         error.ShowHelp => {
             argparse.printHelp(true);
             return ExecutionStats{};
@@ -518,26 +512,26 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
             debug("Invalid arguments.", .{});
             argparse.printHelp(true);
             fatal("Exiting.", .{});
-        }
+        },
     };
-    
-    if(parsed_args.verbose) Console.grey("Processing input file arguments\n", .{});
+
+    if (parsed_args.verbose) Console.grey("Processing input file arguments\n", .{});
     argparse.processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
         fatal("Could not process input file arguments: {s}\n", .{e});
     };
 
     var input_vars = kvstore.KvStore{};
-    if(parsed_args.input_vars_file.constSlice().len > 0) {
-        if(parsed_args.verbose) debug("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
+    if (parsed_args.input_vars_file.constSlice().len > 0) {
+        if (parsed_args.verbose) debug("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
         // TODO: expand variables within envfiles? This to e.g. allow env-files to refer to OS ENV. Any proper use case?
         input_vars = try envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
     }
 
     var extracted_vars: kvstore.KvStore = .{};
     var stats: ExecutionStats = .{};
-    if(parsed_args.playbook_file.constSlice().len > 0) {
+    if (parsed_args.playbook_file.constSlice().len > 0) {
         // Process playbook
-        if(parsed_args.verbose) debug("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
+        if (parsed_args.verbose) debug("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
         stats = try processPlaybook(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
     } else {
         // Process regular list of entries
@@ -556,7 +550,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(aa);
     defer std.process.argsFree(aa, args);
 
-    if(args.len == 1) {
+    if (args.len == 1) {
         argparse.printHelp(false);
         std.process.exit(0);
     }
@@ -565,17 +559,16 @@ pub fn main() !void {
         fatal("Exited due to failure: {s}\n", .{e});
     };
 
-    if(stats.num_fail > 0) {
-        debug("Not all tests were successful: {d} of {d} failed\n", .{stats.num_fail, stats.num_tests});
+    if (stats.num_fail > 0) {
+        debug("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
         exit(.TestsFailed);
     }
 
     exit(.Ok);
 }
 
-
 pub fn envFileToKvStore(dir: fs.Dir, path: []const u8) !kvstore.KvStore {
-    var tmpbuf: [1024*1024]u8 = undefined;
+    var tmpbuf: [1024 * 1024]u8 = undefined;
     var buf_len = io.readFileRawRel(dir, path, &tmpbuf) catch {
         return error.CouldNotReadFile;
     };
