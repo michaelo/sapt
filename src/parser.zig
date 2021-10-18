@@ -26,13 +26,12 @@ pub fn parseErrorArg(comptime text: []const u8, args: anytype, line_no: usize, c
     _ = col_no;
     Console.red("ERROR: ", .{});
     Console.plain(text, args);
-    if(line) |line_value| {
-        Console.plain("\n       Line: {d}: {s}\n", .{line_no+1, line_value});
+    if (line) |line_value| {
+        Console.plain("\n       Line: {d}: {s}\n", .{ line_no + 1, line_value });
     } else {
         Console.plain("\n", .{});
     }
 }
-
 
 // TODO: Add parameter for line-offset since errors also must be correct for playbooks
 pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) errors!void {
@@ -59,7 +58,7 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
         fn parseOutputSectionHeader(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, " ");
             _ = lit.next(); // skip <
-            if(lit.next()) |http_code| {
+            if (lit.next()) |http_code| {
                 _result.expected_http_code = std.fmt.parseInt(u64, http_code[0..], 10) catch return errors.ParseErrorOutputSection;
                 _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseErrorOutputSection;
             } else {
@@ -69,8 +68,8 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
 
         fn parseHeaderEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, ":");
-            if(lit.next()) |key| {
-                if(lit.next()) |value| {
+            if (lit.next()) |key| {
+                if (lit.next()) |value| {
                     _result.headers.append(try HttpHeader.create(key, value)) catch return errors.ParseErrorHeaderEntry;
                 } else {
                     return error.ParseErrorHeaderEntry;
@@ -82,8 +81,8 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
 
         fn parseExtractionEntry(line: []const u8, _result: *Entry) !void {
             var lit = std.mem.split(u8, line, "=");
-            if(lit.next()) |key| {
-                if(lit.next()) |value| {
+            if (lit.next()) |key| {
+                if (lit.next()) |value| {
                     _result.extraction_entries.append(try ExtractionEntry.create(key, value)) catch return errors.ParseErrorExtractionEntry;
                 } else {
                     return error.ParseErrorExtractionEntry;
@@ -104,7 +103,7 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
     var state = ParseState.Init;
     var it = std.mem.split(u8, data, io.getLineEnding(data));
     var line_idx: usize = line_idx_offset;
-    while (it.next()) |line| : (line_idx+=1) {
+    while (it.next()) |line| : (line_idx += 1) {
         // TODO: Refactor. State-names are confusing.
         switch (state) {
             ParseState.Init => {
@@ -224,45 +223,59 @@ test "parseContents extracts to variables" {
 }
 
 /// buffer must be big enough to store the expanded variables. TBD: Manage on heap?
-pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), variables: *kvstore.KvStore) !void {
+pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), variables_sets: []*kvstore.KvStore) !void {
     if (buffer.slice().len == 0) return;
-
     const MAX_VARIABLES = 64;
+
+    const SortBracketsFunc = struct {
+        pub fn byDepthDesc(context: void, a: BracketPair, b: BracketPair) bool {
+            _ = context;
+            return a.depth > b.depth;
+        }
+    };
+
     var pairs = try findAllVariables(buffer.buffer.len, MAX_VARIABLES, buffer);
-    try expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables);
+    std.sort.sort(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
+
+    for (variables_sets) |variables| {
+        try expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables);
+    }
+
+    try expandFunctions(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs);
 }
 
 test "expandVariablesAndFunctions" {
     var variables = kvstore.KvStore{};
+    var variables_sets = [_]*kvstore.KvStore{&variables};
     try variables.add("key", "value");
 
     {
         var testbuf = try std.BoundedArray(u8, 1024).fromSlice("");
-        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
         try testing.expectEqualStrings("", testbuf.slice());
     }
 
     {
         var testbuf = try std.BoundedArray(u8, 1024).fromSlice("hey");
-        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
         try testing.expectEqualStrings("hey", testbuf.slice());
     }
 
     {
         var testbuf = try std.BoundedArray(u8, 1024).fromSlice("{{key}}");
-        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
         try testing.expectEqualStrings("value", testbuf.slice());
     }
 
     {
         var testbuf = try std.BoundedArray(u8, 1024).fromSlice("{{key}}{{key}}");
-        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
         try testing.expectEqualStrings("valuevalue", testbuf.slice());
     }
 
     {
         var testbuf = try std.BoundedArray(u8, 1024).fromSlice("woop {{key}} doop");
-        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
         try testing.expectEqualStrings("woop value doop", testbuf.slice());
     }
 }
@@ -271,23 +284,24 @@ test "expansion bug" {
     var variables = kvstore.KvStore{};
     try variables.add("my_token", "valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue");
 
-    var testbuf = try std.BoundedArray(u8, 8*1024).fromSlice(
+    var testbuf = try std.BoundedArray(u8, 8 * 1024).fromSlice(
         \\Authorization: bearer {{my_token}}
         \\Cookie: RandomSecurityToken={{my_token}}; SomeOtherRandomCookie={{my_token}}
         \\RandomSecurityToken: {{my_token}}
     );
-    try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, &variables);
+    try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, ([_]*kvstore.KvStore{&variables})[0..]);
     try testing.expectEqualStrings(
         \\Authorization: bearer valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
         \\Cookie: RandomSecurityToken=valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue; SomeOtherRandomCookie=valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
         \\RandomSecurityToken: valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
-        , testbuf.slice());
+    , testbuf.slice());
 }
 
 const BracketPair = struct {
     start: usize = undefined,
     end: usize = undefined,
     depth: usize = undefined, // If nested, how deep
+    resolved: bool = false,
 };
 
 pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize)) !std.BoundedArray(BracketPair, MaxNumVariables) {
@@ -350,7 +364,7 @@ test "addUnsignedSigned" {
     try testing.expectError(error.Overflow, addUnsignedSigned(u64, i64, std.math.maxInt(u64), 1));
 }
 
-const FunctionEntryFuncPtr = fn ([]const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
+const FunctionEntryFuncPtr = fn (*std.mem.Allocator, []const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
 
 const FunctionEntry = struct {
     name: []const u8,
@@ -361,23 +375,46 @@ const FunctionEntry = struct {
 };
 
 // Split out such functions to separate file
-fn funcWoop(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcWoop(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     _ = value;
     try out_buf.insertSlice(0, "woop");
 }
 
-fn funcBlank(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcBlank(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     _ = value;
     try out_buf.insertSlice(0, "");
 }
 
-fn funcMyfunc(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcMyfunc(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     try out_buf.insertSlice(0, value);
 }
 
-fn funcBase64enc(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcBase64enc(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     var buffer: [1024]u8 = undefined;
     try out_buf.insertSlice(0, std.base64.standard.Encoder.encode(&buffer, value));
+}
+
+fn funcEnv(allocator: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+    const env_value = try std.process.getEnvVarOwned(allocator, value);
+    defer allocator.free(env_value);
+    try out_buf.insertSlice(0, env_value);
+}
+
+test "funcBase64enc" {
+    var input = "abcde12345:";
+    var expected = "YWJjZGUxMjM0NTo=";
+
+    var output = try std.BoundedArray(u8, 1024).init(0);
+    try funcBase64enc(std.testing.allocator, input, &output);
+    try testing.expectEqualStrings(expected, output.constSlice());
+}
+
+test "funcEnv" {
+    var input = "PATH";
+
+    var output = try std.BoundedArray(u8, 1024).init(0);
+    try funcEnv(std.testing.allocator, input, &output);
+    try testing.expect(output.slice().len > 0);
 }
 
 // fn funcBase64dec() !void {
@@ -388,20 +425,12 @@ fn funcBase64enc(value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void 
 
 // }
 
-test "funcBase64enc" {
-    var input = "abcde12345:";
-    var expected = "YWJjZGUxMjM0NTo=";
-
-    var output = try std.BoundedArray(u8, 1024).init(0);
-    try funcBase64enc(input, &output);
-    try testing.expectEqualStrings(expected, output.constSlice());
-}
-
 const global_functions = [_]FunctionEntry{
     FunctionEntry.create("woopout", funcWoop),
     FunctionEntry.create("blank", funcBlank),
     FunctionEntry.create("myfunc", funcMyfunc),
     FunctionEntry.create("base64enc", funcBase64enc),
+    FunctionEntry.create("env", funcEnv),
 };
 
 fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
@@ -417,23 +446,58 @@ fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
 
 test "getFunction" {
     var buf = utils.initBoundedArray(u8, 1024);
-    try (try getFunction("woopout"))("doesntmatter", &buf);
+    try (try getFunction("woopout"))(std.testing.allocator, "doesntmatter", &buf);
     try testing.expectEqualStrings("woop", buf.slice());
 
     try buf.resize(0);
-    try (try getFunction("blank"))("doesntmatter", &buf);
+    try (try getFunction("blank"))(std.testing.allocator, "doesntmatter", &buf);
     try testing.expectEqualStrings("", buf.slice());
 
     try buf.resize(0);
     try testing.expectError(errors.NoSuchFunction, getFunction("nosuchfunction"));
 
-    try (try getFunction("myfunc"))("mydata", &buf);
+    try (try getFunction("myfunc"))(std.testing.allocator, "mydata", &buf);
     try testing.expectEqualStrings("mydata", buf.slice());
+}
+
+fn expandFunctions(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize), pairs: *std.BoundedArray(BracketPair, MaxNumVariables)) !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = &arena.allocator;
+
+    var end_delta: i64 = 0;
+    for (pairs.slice()) |*pair, i| {
+        if(pair.resolved) continue;
+        var pair_len = pair.end - pair.start + 1;
+        var key = buffer.slice()[pair.start + 2 .. pair.end - 1];
+
+        // check if key is a function, otherwise ignore
+        if (std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null) {
+            // Parse function name, extract "parameter", lookup and call proper function
+            var func_key = key[0..std.mem.indexOf(u8, key, "(").?];
+            var func_arg = key[std.mem.indexOf(u8, key, "(").? + 1 .. std.mem.indexOf(u8, key, ")").?];
+            var function = try getFunction(func_key);
+            var func_buf = utils.initBoundedArray(u8, 1024);
+            try function(allocator, func_arg, &func_buf);
+
+            buffer.replaceRange(pair.start, pair_len, func_buf.slice()) catch {
+                // .Overflow
+                return errors.BufferTooSmall;
+            };
+            pair.resolved = true;
+            end_delta = @intCast(i32, func_buf.slice().len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
+        }
+
+        for (pairs.slice()[i + 1 ..]) |*pair2| {
+            if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
+            if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try addUnsignedSigned(u64, i64, pair2.end, end_delta);
+        }
+    }
 }
 
 /// Buffer must be large enough to contain the expanded variant.
 /// TODO: Test performance with fixed sizes. Possibly redesign the outer to utilize a common scrap buffer
-pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize), pairs: *std.BoundedArray(BracketPair, MaxNumVariables), variables: *kvstore.KvStore) !void {
+fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize), pairs: *std.BoundedArray(BracketPair, MaxNumVariables), variables: *kvstore.KvStore) !void {
     // Algorithm:
     // * prereq: pairs are sorted by depth, desc
     // * pick entry from pairs until empty
@@ -443,41 +507,21 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
     // * substitute slice in buffer
     // * loop through all remaining pairs and any .start or .end that's > prev.end + end_delta with x + end_delta
 
-    const SortFunc = struct {
-        pub fn byDepthDesc(context: void, a: BracketPair, b: BracketPair) bool {
-            _ = context;
-            return a.depth > b.depth;
-        }
-    };
-
-    std.sort.sort(BracketPair, pairs.slice(), {}, SortFunc.byDepthDesc);
     var end_delta: i64 = 0;
-    for (pairs.slice()) |pair, i| {
+    for (pairs.slice()) |*pair, i| {
+        if(pair.resolved) continue;
         var pair_len = pair.end - pair.start + 1;
         var key = buffer.slice()[pair.start + 2 .. pair.end - 1];
 
-        // check if key is a variable or function
-        if (std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null) {
-            // Found function:
-            // Parse function name, extract "parameter", lookup and call proper function
-            var func_key = key[0..std.mem.indexOf(u8, key, "(").?];
-            var func_arg = key[std.mem.indexOf(u8, key, "(").? + 1 .. std.mem.indexOf(u8, key, ")").?];
-            var function = try getFunction(func_key);
-            var func_buf = utils.initBoundedArray(u8, 1024);
-            try function(func_arg, &func_buf);
-
-            buffer.replaceRange(pair.start, pair_len, func_buf.slice()) catch {
-                // .Overflow
-                return errors.BufferTooSmall;
-            };
-            end_delta = @intCast(i32, func_buf.slice().len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
-        } else {
+        // check if key is a variable (not function)
+        if (!(std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null)) {
             if (variables.get(key)) |value| {
                 var value_len = value.len;
                 end_delta = @intCast(i32, value_len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
                 buffer.replaceRange(pair.start, pair_len, value) catch {
                     return errors.BufferTooSmall;
                 };
+                pair.resolved = true;
             } else {
                 // debug("Could not find variable: '{s}'\n", .{key});
                 return error.NoSuchVariableFound;
@@ -511,11 +555,14 @@ test "bracketparser" {
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var1}}") == null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var2}}") == null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var3}}") == null);
-    try testing.expect(std.mem.indexOf(u8, str.slice(), "{{myfunc") == null);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "{{myfunc") != null);
 
     try testing.expect(std.mem.indexOf(u8, str.slice(), "value1") != null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "v2") != null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "woop") != null);
+
+    try expandFunctions(str.buffer.len, MAX_VARIABLES, &str, &pairs);
+    try testing.expect(std.mem.indexOf(u8, str.slice(), "{{myfunc") == null);
 }
 
 test "parseContents ignores comments" {
@@ -595,23 +642,13 @@ test "expressionExtractor" {
     try testing.expectEqualStrings("123123", expressionExtractor("123123=idtoken", "()=id").?.result);
 }
 
-
-
-pub const PlaybookSegmentType = enum {
-    Unknown,
-    // Comment, // ignore?
-    TestInclude,
-    EnvInclude,
-    TestRaw,
-    EnvRaw
-};
+pub const PlaybookSegmentType = enum { Unknown, TestInclude, EnvInclude, TestRaw, EnvRaw };
 
 pub const SegmentMetadata = union(PlaybookSegmentType) {
     Unknown: void,
     TestInclude: struct {
         repeats: u32,
     },
-    // Comment, // ignore?
     EnvInclude: void,
     TestRaw: void,
     EnvRaw: void,
@@ -619,11 +656,10 @@ pub const SegmentMetadata = union(PlaybookSegmentType) {
 
 pub const PlaybookSegment = struct {
     line_start: u64,
-    segment_type:PlaybookSegmentType = .Unknown,
+    segment_type: PlaybookSegmentType = .Unknown,
     slice: []const u8 = undefined, // Slice into raw buffer
     meta: SegmentMetadata = undefined,
 };
-
 
 /// Parses a playbook-file into a list of segments. Each segment must then be further processed according to the segment-type
 pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
@@ -631,24 +667,26 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
     var line_idx: u64 = 0;
     var seg_idx: u64 = 0;
 
-    while(main_it.next()) |line| : (line_idx += 1) {
-        if(line.len == 0) continue; // ignore blank lines
-        if(line[0] == '#') continue; // ignore comments
+    while (main_it.next()) |line| : (line_idx += 1) {
+        if (line.len == 0) continue; // ignore blank lines
+        if (line[0] == '#') continue; // ignore comments
 
         // Top level evaluation
-        switch(line[0]) {
+        switch (line[0]) {
             '@' => {
                 // Got file inclusion segment
                 var sub_it = std.mem.split(u8, line[1..], "*");
                 var path = std.mem.trim(u8, sub_it.next().?, " "); // expected to be there, otherwise error
 
-                if(std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_TEST)) {
+                if (std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_TEST)) {
                     var meta_raw = sub_it.next(); // may be null
                     var repeats: u32 = 1;
-                    if(meta_raw) |meta| {
-                        repeats = std.fmt.parseInt(u32, std.mem.trim(u8, meta, " "), 10) catch { return 1; };
+                    if (meta_raw) |meta| {
+                        repeats = std.fmt.parseInt(u32, std.mem.trim(u8, meta, " "), 10) catch {
+                            return 1;
+                        };
                     }
-                    
+
                     result[seg_idx] = .{
                         .line_start = line_idx,
                         .segment_type = .TestInclude,
@@ -660,12 +698,8 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                         },
                     };
                     seg_idx += 1;
-                } else if(std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_ENV)) {
-                    result[seg_idx] = .{
-                        .line_start = line_idx,
-                        .segment_type = .EnvInclude,
-                        .slice = path
-                    };
+                } else if (std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_ENV)) {
+                    result[seg_idx] = .{ .line_start = line_idx, .segment_type = .EnvInclude, .slice = path };
                     seg_idx += 1;
                 }
             },
@@ -676,53 +710,49 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                 // Strategy: store pointer to start, iterate until end, store pointer to end, create slice from pointers
                 var buf_start = @ptrToInt(buf.ptr);
                 var chunk_line_start = line_idx;
-                var start_idx = @ptrToInt(line.ptr)-buf_start;
+                var start_idx = @ptrToInt(line.ptr) - buf_start;
                 var end_idx: ?u64 = null;
                 // Parse until next >, @ or eof
-                chunk_blk: while(main_it.next()) |line2| {
+                chunk_blk: while (main_it.next()) |line2| {
                     line_idx += 1;
                     // Check the following line, spin until we've reached another segment
-                    if(main_it.rest().len == 0) break;// EOF
-                    switch(main_it.rest()[0]) {
-                        '>','@' => {
-                            end_idx = @ptrToInt(&line2[line2.len-1])-buf_start; // line2.len-1?
+                    if (main_it.rest().len == 0) break; // EOF
+                    switch (main_it.rest()[0]) {
+                        '>', '@' => {
+                            end_idx = @ptrToInt(&line2[line2.len - 1]) - buf_start; // line2.len-1?
                             result[seg_idx] = .{
                                 .line_start = chunk_line_start,
                                 .segment_type = .TestRaw,
-                                .slice = buf[start_idx..end_idx.?+1],
+                                .slice = buf[start_idx .. end_idx.? + 1],
                             };
                             seg_idx += 1;
-                            break: chunk_blk;
+                            break :chunk_blk;
                         },
-                        else => {}
+                        else => {},
                     }
                 }
 
-                if(end_idx == null) {
+                if (end_idx == null) {
                     // Reached end of file
-                    end_idx = @ptrToInt(&buf[buf.len-1]) - buf_start;
+                    end_idx = @ptrToInt(&buf[buf.len - 1]) - buf_start;
 
                     result[seg_idx] = .{
                         .line_start = chunk_line_start,
                         .segment_type = .TestRaw,
-                        .slice = buf[start_idx..end_idx.?+1],
+                        .slice = buf[start_idx .. end_idx.? + 1],
                     };
                     seg_idx += 1;
                 }
             },
             else => {
-                if(std.mem.indexOf(u8, line, "=") != null) {
-                    result[seg_idx] = .{
-                        .line_start = line_idx,
-                        .segment_type = .EnvRaw,
-                        .slice = line[0..]
-                    };
+                if (std.mem.indexOf(u8, line, "=") != null) {
+                    result[seg_idx] = .{ .line_start = line_idx, .segment_type = .EnvRaw, .slice = line[0..] };
                     seg_idx += 1;
                 } else {
                     // Unsupported
                     unreachable;
                 }
-            }
+            },
         }
     }
 
@@ -731,8 +761,8 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
 
 test "parse playbook single test fileref" {
     const buf =
-    \\@some/test.pi
-    \\
+        \\@some/test.pi
+        \\
     ;
     var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
@@ -743,11 +773,10 @@ test "parse playbook single test fileref" {
     try testing.expectEqualStrings("some/test.pi", segments.get(0).slice);
 }
 
-
 test "parse playbook test filerefs can have repeats" {
     const buf =
-    \\@some/test.pi*10
-    \\
+        \\@some/test.pi*10
+        \\
     ;
     var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
@@ -759,9 +788,9 @@ test "parse playbook test filerefs can have repeats" {
 
 test "parse playbook fileref and envref" {
     const buf =
-    \\@some/test.pi
-    \\@some/.env
-    \\
+        \\@some/test.pi
+        \\@some/.env
+        \\
     ;
     var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
@@ -774,8 +803,8 @@ test "parse playbook fileref and envref" {
 
 test "parse playbook single raw var" {
     const buf =
-    \\MY_ENV=somevalue
-    \\
+        \\MY_ENV=somevalue
+        \\
     ;
     var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
@@ -788,8 +817,8 @@ test "parse playbook single raw var" {
 
 test "parse playbook raw test" {
     const buf =
-    \\> GET https://my.service/api
-    \\< 200
+        \\> GET https://my.service/api
+        \\< 200
     ;
     var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
@@ -800,14 +829,13 @@ test "parse playbook raw test" {
     try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
 }
 
-
 test "parse playbook two raw tests, one with extraction-expressions" {
     const buf =
-    \\> GET https://my.service/api
-    \\< 200
-    \\> GET https://my.service/api2
-    \\< 200
-    \\RESPONSE=()
+        \\> GET https://my.service/api
+        \\< 200
+        \\> GET https://my.service/api2
+        \\< 200
+        \\RESPONSE=()
     ;
     var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(parsePlaybook(buf, segments.unusedCapacitySlice()));
@@ -860,7 +888,7 @@ const buf_complex_playbook_example =
     \\Accept: application/json
     \\Cookie: SecureToken={{oidc_token}}
     \\< 200
-    ;
+;
 
 test "parse super complex playbook" {
     var segments = utils.initBoundedArray(PlaybookSegment, 128);

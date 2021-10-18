@@ -1,0 +1,5 @@
+# Don't call this unless you're comfortably with randomly sending your username to some server
+> GET https://michaelodden.com/
+X-Username: {{OS_USERNAME_FROM_ENV}}
+X-Username2: {{env(LOGNAME)}}
+< 200 OK

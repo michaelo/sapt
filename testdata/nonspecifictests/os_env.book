@@ -1,0 +1,2 @@
+OS_USERNAME_FROM_ENV={{env(LOGNAME)}}
+@os_env_test.pi

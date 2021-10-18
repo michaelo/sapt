@@ -4,6 +4,9 @@ const testing = std.testing;
 const io = @import("io.zig");
 const utils = @import("utils.zig");
 
+pub const MAX_KV_KEY_LEN = 128;
+pub const MAX_KV_VALUE_LEN = 8 * 1024;
+
 // TODO: Can make generic, especially with regards to capacity
 // pub fn KvStore(comptime KeyType: type, comptime )
 // Att! Highly inefficient
@@ -12,12 +15,12 @@ const utils = @import("utils.zig");
 // Name suggestion: OrderedWoKvStore?
 pub const KvStore = struct {
     pub const KvStoreEntry = struct {
-        key: std.BoundedArray(u8, 128) = utils.initBoundedArray(u8, 128),
-        value: std.BoundedArray(u8, 8 * 1024) = utils.initBoundedArray(u8, 8 * 1024),
+        key: std.BoundedArray(u8, MAX_KV_KEY_LEN) = utils.initBoundedArray(u8, MAX_KV_KEY_LEN),
+        value: std.BoundedArray(u8, MAX_KV_VALUE_LEN) = utils.initBoundedArray(u8, MAX_KV_VALUE_LEN),
         pub fn create(key: []const u8, value: []const u8) !KvStoreEntry {
             return KvStoreEntry{
-                .key = try std.BoundedArray(u8, 128).fromSlice(key),
-                .value = try std.BoundedArray(u8, 8 * 1024).fromSlice(value),
+                .key = try std.BoundedArray(u8, MAX_KV_KEY_LEN).fromSlice(key),
+                .value = try std.BoundedArray(u8, MAX_KV_VALUE_LEN).fromSlice(value),
             };
         }
     };

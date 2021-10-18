@@ -114,7 +114,7 @@ Provided that the auth-endpoint will return something like this:
 
 ### Finally, Run the testsuite
 
-    sapt -i=myservice/.env myservice
+    sapt myservice
 
 Output:
 
@@ -207,6 +207,10 @@ Terminology:
         <tr>
             <td>playbook</td>
             <td>a particular recipe of tests, their order and other parameters to be executed in a particular fashion</td>
+        </tr>
+        <tr>
+            <td>extraction-expression</td>
+            <td>The mechanism which allows one to extract data from responses according to a given expression and store the results in a variable for use in following tests. E.g. extract an auth-token to use in protected requests.</td>
         </tr>
     </tobdy>
 </table>
@@ -307,7 +311,8 @@ Example:
 
 Supported functions:
 
-* base64enc(string)
+* base64enc(string) - base64-encoding
+* env(string) - lookup variables from OS-environment
 * *TODO: urlencode(string)*
 * *TODO: base64dec(string) ?*
 
@@ -325,7 +330,7 @@ Payload section, optional:
     -
     {"some":"data}
 
-*TBD: Implement support for injecting files?*
+*TBD: Implement support for injecting files? If so: allow arbitrary sizes.*
 
 Output section:
 
@@ -347,7 +352,6 @@ Set of variable extraction expressions, optional:
 
 Must fix to be usable AKA pri-TODO:
 -------------
-* Implement support for automatically include .env-files if they are found, scoped to the folder in which the reside.
 * Determine if current solution where variables can't be overwritten is a good idea or not.
 
 TODO, somewhat ordered:
@@ -355,6 +359,7 @@ TODO, somewhat ordered:
 * Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * TBD: shall we provide libcurl? If so, make sure to conform to https://curl.se/docs/copyright.html.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
+* Fail if test has variable that's not substituted? Or at least warn.
 * Code quality - especially in main.zig - is quite crap at this point.
 * Arguments: Revise names for all arguments. E.g. -f is now "format", while it's commonly assumed to be "force".
 * sapt -h should also provide information about format of test files, and perhaps also playbooks, to be self-contained.
@@ -364,6 +369,7 @@ TODO, somewhat ordered:
 * Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
 * TBD: Allow support for OS-environment variables. Control access by flag?
+* TBD: Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
 * Implement support to do step-by-step tests by e.g. requiring user to press enter between each test
 * Provide better granularity for verbosity: e.g. separate between curl-verbose and sapt-verbose
 * Playbooks:
@@ -388,7 +394,7 @@ TODO, somewhat ordered:
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
 * TBD: Shall we support "repeats" in test-files as well? Not only playbooks.
 * Support HTTP follow?
-* Actively limit the set of protocols we allow?
+* Actively limit the set of protocols we allow. We currently just forward the URL however it is to CURL
 * Finish basic syntax highligh ruleset for the test-files
 * Dev: Test feature flags based on comptime-parsing a feature-file
 

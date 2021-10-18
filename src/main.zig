@@ -34,6 +34,13 @@ const HttpMethod = types.HttpMethod;
 const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
 
+const CONFIG_MAX_PAYLOAD_SIZE = 1024 * 1024;
+const CONFIG_MAX_URL_LEN = 2048;
+const CONFIG_MAX_ENV_FILE_SIZE = 1024 * 1024;
+const CONFIG_MAX_TEST_FILE_SIZE = 1024 * 1024;
+const CONFIG_MAX_PLAYBOOK_FILE_SIZE = 1024 * 1024;
+
+
 const initBoundedArray = utils.initBoundedArray;
 
 pub const errors = error{
@@ -66,16 +73,16 @@ pub fn exit(code: ExitCode) noreturn {
 }
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    debug(format, args);
+    Console.plain(format, args);
     exit(.ProcessError);
 }
 
 pub const Entry = struct {
     name: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
     method: HttpMethod = undefined,
-    url: std.BoundedArray(u8, 2048) = initBoundedArray(u8, 2048),
+    url: std.BoundedArray(u8, CONFIG_MAX_URL_LEN) = initBoundedArray(u8, CONFIG_MAX_URL_LEN),
     headers: std.BoundedArray(HttpHeader, 32) = initBoundedArray(HttpHeader, 32),
-    payload: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
+    payload: std.BoundedArray(u8, CONFIG_MAX_PAYLOAD_SIZE) = initBoundedArray(u8, CONFIG_MAX_PAYLOAD_SIZE),
     expected_http_code: u64 = 0, // 0 == don't care
     expected_response_regex: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
     extraction_entries: std.BoundedArray(ExtractionEntry, 32) = initBoundedArray(ExtractionEntry, 32),
@@ -162,7 +169,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
     stats.time_min = std.math.maxInt(i64);
 
     if (args.multithreaded and repeats > 1) {
-        if (args.verbose) debug("Starting multithreaded test ({d} threads working total {d} requests)\n", .{ try std.Thread.getCpuCount(), repeats });
+        if (args.verbose) Console.plain("Starting multithreaded test ({d} threads working total {d} requests)\n", .{ try std.Thread.getCpuCount(), repeats });
 
         // We start naively, by sharing data, although it's not high-performance optimal, but
         // it's a starting point from which we can improve once we've identifed all pitfalls
@@ -211,14 +218,13 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
         try pool.startAndJoin(); // Can fail if unable to spawn thread, but then we are in trouble anyways
         // Evaluate results?
     } else {
-        if (args.verbose) debug("Starting singlethreaded test ({d} requests)\n", .{repeats});
+        if (args.verbose) Console.plain("Starting singlethreaded test ({d} requests)\n", .{repeats});
         const time_total_start = std.time.milliTimestamp();
 
         var i: usize = 0;
         while (i < repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
             if (httpclient.processEntry(entry, args, result)) {
-                // debug("Content-Type: {s}\n", .{result.response_content_type.slice()});
                 if (!isEntrySuccessful(entry, result)) {
                     result.num_fails += 1;
                     result.conclusion = false;
@@ -262,7 +268,7 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
     // Do
     var stats: ProcessStatistics = .{};
-    if (args.verbose) debug("Processing entry: {s}\n", .{entry_name});
+    if (args.verbose) Console.plain("Processing entry: {s}\n", .{entry_name});
 
     processEntryMain(test_context, args, entry_buf, repeats, &stats, line_idx_offset) catch |err| {
         // TODO: Switch the errors and give helpful output
@@ -295,12 +301,12 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
         // Print all stored variables
         if (args.verbose and extracted_vars.store.slice().len > 0) {
-            debug("Values extracted from response:\n", .{});
-            debug("-" ** 80 ++ "\n", .{});
+            Console.plain("Values extracted from response:\n", .{});
+            Console.plain("-" ** 80 ++ "\n", .{});
             for (extracted_vars.store.slice()) |v| {
-                debug("* {s}={s}\n", .{ v.key.constSlice(), v.value.constSlice() });
+                Console.plain("* {s}={s}\n", .{ v.key.constSlice(), v.value.constSlice() });
             }
-            debug("-" ** 80 ++ "\n", .{});
+            Console.plain("-" ** 80 ++ "\n", .{});
         }
     } else {
         // num_failed += 1;
@@ -318,7 +324,7 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
         Console.bold("Response (up to 1024KB):\n", .{});
         // TODO: pretty-print based on response Content-Type
         if (!args.show_pretty_response_data) {
-            debug("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024 * 1024)});
+            Console.plain("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024 * 1024)});
         } else {
             try pretty.getPrettyPrinterByContentType(test_context.result.response_content_type.slice())(std.io.getStdOut().writer(), test_context.result.response_first_1mb.slice());
         }
@@ -338,8 +344,9 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
 fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     // Load playbook
     // var scrap: [4*1024]u8 = undefined;
-    var buf_playbook = initBoundedArray(u8, 1024 * 1024); // Att: this must be kept as it is used to look up data from for the segments
-    var buf_test = initBoundedArray(u8, 1024 * 1024);
+    var buf_scrap = initBoundedArray(u8,16*1024);
+    var buf_playbook = initBoundedArray(u8, CONFIG_MAX_PLAYBOOK_FILE_SIZE); // Att: this must be kept as it is used to look up data from for the segments
+    var buf_test = initBoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE);
 
     io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
         Console.red("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
@@ -357,11 +364,12 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
     var num_failed: u64 = 0;
     var num_processed: u64 = 0;
     var total_num_tests = getNumOfSegmentType(segments.constSlice(), .TestInclude) + getNumOfSegmentType(segments.constSlice(), .TestRaw);
+    var variables_sets = [_]*kvstore.KvStore{input_vars, extracted_vars};
     const time_start = std.time.milliTimestamp();
     // Pass through each item and process according to type
     for (segments.constSlice()) |segment| {
         try buf_test.resize(0);
-        if (args.verbose) debug("Processing segment type: {s}, line: {d}\n", .{ segment.segment_type, segment.line_start });
+        if (args.verbose) Console.plain("Processing segment type: {s}, line: {d}\n", .{ segment.segment_type, segment.line_start });
 
         switch (segment.segment_type) {
             .Unknown => {
@@ -381,7 +389,7 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                     // TODO: how to limit max length? will 128<s pad the result?
                     name_slice = try std.fmt.bufPrint(&name_buf, "{s}", .{utils.constSliceUpTo(u8, segment.slice, 0, name_buf.len)});
                     repeats = segment.meta.TestInclude.repeats;
-                    if (args.verbose) debug("Processing: {s}\n", .{segment.slice});
+                    if (args.verbose) Console.plain("Processing: {s}\n", .{segment.slice});
                     // Load from file and parse
                     io.readFileRel(u8, buf_test.buffer.len, playbook_basedir, segment.slice, &buf_test) catch {
                         parser.parseErrorArg("Could not read file", .{}, segment.line_start, 0, buf_test.constSlice(), segment.slice);
@@ -389,15 +397,13 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
                         continue;
                     };
                 } else {
-                    // debug("Processing: {s}\n", .{"inline test"});
                     // Test raw
                     name_slice = try std.fmt.bufPrint(&name_buf, "Inline segment starting at line: {d}", .{segment.line_start});
                     try buf_test.appendSlice(segment.slice);
                 }
 
                 // Expand variables
-                parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, extracted_vars) catch {};
-                parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, input_vars) catch {};
+                parser.expandVariablesAndFunctions(buf_test.buffer.len, &buf_test, variables_sets[0..]) catch {};
 
                 // Execute the test
                 if (processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, name_slice, buf_test.constSlice(), args, input_vars, extracted_vars, repeats, segment.line_start)) {
@@ -408,19 +414,25 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
             },
             .EnvInclude => {
                 // Load from file and parse
-                if (args.verbose) debug("Loading env-file: '{s}'\n", .{segment.slice});
+                if (args.verbose) Console.plain("Loading env-file: '{s}'\n", .{segment.slice});
                 try input_vars.addFromOther((try envFileToKvStore(playbook_basedir, segment.slice)), .Fail);
             },
             .EnvRaw => {
                 // Parse key=value directly
-                if (args.verbose) debug("Loading in-file env at line {d}\n", .{segment.line_start});
-                try input_vars.addFromBuffer(segment.slice);
+                if (args.verbose) Console.plain("Loading in-file env at line {d}\n", .{segment.line_start});
+                try buf_scrap.resize(0);
+                try buf_scrap.appendSlice(segment.slice);
+
+                // Expand functions
+                parser.expandVariablesAndFunctions(buf_scrap.buffer.len, &buf_scrap,  ([_]*kvstore.KvStore{})[0..]) catch {};
+
+                // TODO: Shall we process functions here?
+                try input_vars.addFromBuffer(buf_scrap.constSlice());
             },
         }
-        // debug("{d}: {s}: {s}\n", .{idx, segment.segment_type, segment.slice});
     }
 
-    debug(
+    Console.plain(
         \\------------------
         \\{d}/{d} OK
         \\------------------
@@ -437,7 +449,7 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
 
 // Regular path for tests passed as arguments
 fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
-    var buf = initBoundedArray(u8, 1024 * 1024);
+    var buf_testfile = initBoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE);
     var num_processed: u64 = 0;
     var num_failed: u64 = 0;
     const time_start = std.time.milliTimestamp();
@@ -445,6 +457,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
     // Used to check if we enter a folder
     var folder_local_vars: kvstore.KvStore = undefined;
     var current_folder: []const u8 = undefined;
+    var variables_sets = [_]*kvstore.KvStore{&folder_local_vars, input_vars, extracted_vars};
     for (args.files.slice()) |file| {
         // If new folder: clear folder_local_vars
         if (!std.mem.eql(u8, current_folder, io.getParent(file.constSlice()))) {
@@ -464,24 +477,22 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
         //////////////////
         // Process
         //////////////////
-        io.readFile(u8, buf.buffer.len, file.constSlice(), &buf) catch {
+        io.readFile(u8, buf_testfile.buffer.len, file.constSlice(), &buf_testfile) catch {
             Console.red("ERROR: Could not read file: {s}\n", .{file.constSlice()});
             num_failed += 1;
             continue;
         };
 
         // Expand all variables
-        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, &folder_local_vars) catch {};
-        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, extracted_vars) catch {};
-        parser.expandVariablesAndFunctions(buf.buffer.len, &buf, input_vars) catch {};
+        parser.expandVariablesAndFunctions(buf_testfile.buffer.len, &buf_testfile,  variables_sets[0..]) catch {};
 
-        if (processAndEvaluateEntryFromBuf(test_context, num_processed, args.files.slice().len, file.constSlice(), buf.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
+        if (processAndEvaluateEntryFromBuf(test_context, num_processed, args.files.slice().len, file.constSlice(), buf_testfile.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
             // OK
         } else |_| {
             num_failed += 1;
         }
     }
-    debug(
+    Console.plain(
         \\------------------
         \\{d}/{d} OK
         \\------------------
@@ -509,7 +520,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
             return ExecutionStats{};
         },
         else => {
-            debug("Invalid arguments.", .{});
+            Console.plain("Invalid arguments.", .{});
             argparse.printHelp(true);
             fatal("Exiting.", .{});
         },
@@ -522,7 +533,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
 
     var input_vars = kvstore.KvStore{};
     if (parsed_args.input_vars_file.constSlice().len > 0) {
-        if (parsed_args.verbose) debug("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
+        if (parsed_args.verbose) Console.plain("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
         // TODO: expand variables within envfiles? This to e.g. allow env-files to refer to OS ENV. Any proper use case?
         input_vars = try envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
     }
@@ -531,7 +542,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     var stats: ExecutionStats = .{};
     if (parsed_args.playbook_file.constSlice().len > 0) {
         // Process playbook
-        if (parsed_args.verbose) debug("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
+        if (parsed_args.verbose) Console.plain("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
         stats = try processPlaybook(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
     } else {
         // Process regular list of entries
@@ -560,7 +571,7 @@ pub fn main() !void {
     };
 
     if (stats.num_fail > 0) {
-        debug("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
+        Console.plain("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
         exit(.TestsFailed);
     }
 
@@ -568,12 +579,19 @@ pub fn main() !void {
 }
 
 pub fn envFileToKvStore(dir: fs.Dir, path: []const u8) !kvstore.KvStore {
-    var tmpbuf: [1024 * 1024]u8 = undefined;
-    var buf_len = io.readFileRawRel(dir, path, &tmpbuf) catch {
+    var tmpbuf = initBoundedArray(u8, CONFIG_MAX_ENV_FILE_SIZE);
+
+    io.readFileRel(u8, tmpbuf.buffer.len, dir, path, &tmpbuf) catch {
+        Console.red("ERROR: Could not read .env-file: {s}\n", .{path});
         return error.CouldNotReadFile;
     };
 
-    return try kvstore.KvStore.fromBuffer(tmpbuf[0..buf_len]);
+    // TODO: Expand variables and functions? 
+    // Start with functions, then later consider vars as that would require us to 
+    // determine order of resolution, and e.g. if we shall support in-file-vars.
+    try parser.expandVariablesAndFunctions(tmpbuf.buffer.len, &tmpbuf, ([_]*kvstore.KvStore{})[0..]);
+
+    return try kvstore.KvStore.fromBuffer(tmpbuf.constSlice());
 }
 
 test "envFileToKvStore" {
