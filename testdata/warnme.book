@@ -3,8 +3,8 @@
 # Define env in-file
 MY_ENV=Woop
 
-# Refer to external test
-@01-warnme/01-warnme-stats.pi
+# Refer to external test, called once
+@01-warnme/01-warnme-status-ok.pi
 
 # Refer to external test with repeats
 @01-warnme/01-warnme-status-ok.pi * 5

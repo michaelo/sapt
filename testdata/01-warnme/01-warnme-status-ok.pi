@@ -1,2 +1,2 @@
 > GET https://api.warnme.no/api/status
-< 200 "summarized":false
+< 200 "database":true

@@ -65,19 +65,35 @@ pub fn printFormatHelp() void {
         \\  Content-Type: application/x-www-form-urlencoded
         \\  --
         \\  field=value&field2=othervalue
-        \\  < 200
+        \\  < 200 string_that_must_be_found_to_be_considered_success
+        \\  # Extraction entries:
+        \\  # A variable will be created if the rightmost expression is found. '()' is
+        \\  # a placeholder for the value to extract.
+        \\  # E.g. if the response is: id=123&result=true, then the following will create
+        \\  # a variable named "RESULT_ID" with the value "123", which can be reused in
+        \\  # later tests:
+        \\  RESULT_ID=id=()&result=true
         \\
         \\Playbook-files (recommended to have extension .book):
-        \\  # Import variables from 
+        \\  # Import variables from file which can be accessed in any following tests
         \\  @../globals/some_env_file.env
         \\ 
-        \\  # Import test from file
+        \\  # Define variable which can be accessed in any following tests
+        \\  SOME_VAR=value
+        \\ 
+        \\  # Import/execute test from file
         \\  @my_test.pi
         \\ 
         \\  # Att: imports are relative to playbook
+        \\ 
         \\  # In-file test, format just as in .pi-files
         \\  > GET https://example.com/
         \\  < 200
+        \\
+        \\Functions:
+        \\ sapt has a couple convenience-functions that can be used in tests and variable-definitions
+        \\ * {{base64enc(value)}} - base64-encodes the value
+        \\ * {{env(key)}} - attempts to look up the environment-variable 'key' from the operating system.
         \\
         \\
         , .{config.APP_NAME, config.APP_VERSION});
