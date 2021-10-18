@@ -35,16 +35,14 @@ This sections is reserved for features and decisions which have not rached matur
 
 ### Variable handling
 
-The tool shall support access to environment variables (?) as well as be able to: 1) read variables from .env-files and populate variables based on response from tests.
+The tool shall support access to environment variables as well as be able to: 1) read variables from .env-files and populate variables based on response from tests.
 
 Sources of variables:
 
 * OS environment
-  * TBD: Are there any security/privacy issues here?
+  * Provided by a particular function ('env()')
 * .env-files
-  * TBD: Shall they be allowed in any folder, and thus be similarily scoped? We aim for simplicity and clearity - we don't want unintended variables set by mistake due to e.g. running tests from multiple folders
-  * Proposal: Any top-level folders passed as direct arguments to 
-  * Will need to handle "collisions" where same variable is set from multiple sources. Suggested order, from least to most significant: OS env, .env, parsed. Furthermore, definitions from subfolder .envs override parent .envs.
+  * Can be given as specific files, or automatically resolved when passing folders 
 * Parsed from results of earlier tests
 
 ### Playbooks
@@ -113,8 +111,36 @@ To support passing either larger sets of data, or perhaps a binary payload of so
 
 Proposed syntax:
 
-    > GET https://my.service/endpoint
+    > POST https://my.service/endpoint
     Content-Type: image/jpeg
     # Specife a file by adding a '@'+path-reference directly after the payload-separator:
     -@myfile.jpg
     < 200
+
+### Command line interface
+
+Basic syntax:
+
+    sapt [args] file [file2 ... fileN]
+    sapt [args] --playbook=playbook.book
+
+    'file' can here be any combination of folders, .pi- and .env-files. .env-files are scopes local to their immediate parent-folders.
+
+Basic args:
+
+    --help, -h               Show this help
+    --help-format            Show overview of test- and playbook-formats
+    --initial-vars=file,-i=file   The file is processed as a key=value-list of variables made available for all tests performed
+    --multithread,-m         Will enable multithreading for repeated tests (in playbook)
+    --playbook=file,-b=file  Will load and process specified playbook
+    --pretty,-p              Enable prettyprinting the response data for supported Content-Types.
+    --show-response,-d       Output thow the response data from each request
+    --verbose, -v            Normal verbosity, will show more details re processing steps and response data
+    --verbose-curl           Sets VERBOSE for libcurl
+
+Suggestions for later:
+
+    --silent,-s              Will suppress all stdout output
+    --pretty=json|xml|html   Force specific formatter
+    --output=file            Will redirect all the output to given file
+    TBD: multiple --inital-vars?

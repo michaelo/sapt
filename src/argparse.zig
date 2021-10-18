@@ -11,149 +11,309 @@ const FilePathEntry = main.FilePathEntry;
 
 pub fn printHelp(full: bool) void {
     debug(
-        \\
         \\{0s} v{1s} - Simple API Tester
         \\
-        \\Usage: {0s} [arguments] [file1 file2 ... fileN]
+        \\Usage: {0s} [arguments] [file1.pi file2.pi ... fileN.pi]
         \\
-    , .{ config.APP_NAME, config.APP_VERSION });
+    , .{ config.APP_NAME, config.APP_VERSION});
 
     if (!full) return;
 
     debug(
-        \\{0s} gettoken.pi testsuite1/*
-        \\{0s} -p=myplaybook.book
+        \\{0s} api_is_healthy.pi
+        \\{0s} testsuite01/
+        \\{0s} -b=myplaybook.book
 //        \\{0s} -p=myplaybook.book -s -o=output.log
-        \\{0s} -i=testsuite01/.env testsuite01
+        \\{0s} -i=generaldefs/.env testsuite01/
         \\
         \\Arguments
-        \\  -h           Show this help
-        // \\  --test-help
-        // \\  --playbook-help
-        \\  -v           Verbose
-//        \\  -r           Recursive -- not implemented yet
-//        \\  -s           Silent -- not implemented yet
-        \\  -d           Show response data
-        \\  -f           Try to format response data based on Content-Type.
-        \\               Naive support for JSON, XML and HTML.
-        \\  -m           Activates multithreading - relevant for repeated tests via 
-        \\               playbooks.
-        \\  -i=file      Input-variables file
-//        \\  -o=file      Redirect all output to file
-        \\  -p=playbook  Read tests to perform from playbook-file -- if set, ignores
-        \\               other tests passed as arguments. Will later autosense
-        \\               based on extension instead if dedicated flag.
+        \\  -h, --help          Show this help
+        \\      --help-format   Show details regarding file formats
+        \\  -v, --verbose       Verbose output
+        \\      --verbose-curl  Verbose output from libcurl
+        \\  -d, --show-response Show response data
+        \\  -p, --pretty        Try to format response data based on Content-Type.
+        \\                      Naive support for JSON, XML and HTML
+        \\  -m, --multithread   Activates multithreading - relevant for repeated tests
+        \\                      via playbooks
+        \\  -i=file, --initial-vars=file
+        \\                      Provide file with variable-definitions made available to
+        \\                      all tests
+        \\  -b=file, --playbook=file
+        \\                      Read tests to perform from playbook-file -- if set,
+        \\                      ignores other tests passed as arguments
         \\
     , .{config.APP_NAME});
 }
 
+pub fn printFormatHelp() void {
+    debug(
+        \\{0s} v{1s} - Simple API Tester - format help
+        \\  For more details, please see: https://github.com/michaelo/sapt/
+        \\
+        \\Variable-files (must have extension .env):
+        \\  MYVAR=value
+        \\  USERNAME=Admin
+        \\  PASSWORD=SuperSecret
+        \\
+        \\Test-files (must have extension .pi):
+        \\  > GET https://example.com/
+        \\  < 200
+        \\
+        \\  > POST https://example.com/protected/upload
+        \\  Authorization: Basic {{{{base64enc({{{{USERNAME}}}}:{{{{PASSWORD}}}})}}}}
+        \\  Content-Type: application/x-www-form-urlencoded
+        \\  --
+        \\  field=value&field2=othervalue
+        \\  < 200
+        \\
+        \\Playbook-files (recommended to have extension .book):
+        \\  # Import variables from 
+        \\  @../globals/some_env_file.env
+        \\ 
+        \\  # Import test from file
+        \\  @my_test.pi
+        \\ 
+        \\  # Att: imports are relative to playbook
+        \\  # In-file test, format just as in .pi-files
+        \\  > GET https://example.com/
+        \\  < 200
+        \\
+        \\
+        , .{config.APP_NAME, config.APP_VERSION});
+}
+
+fn argIs(arg: []const u8, full: []const u8, short: ?[]const u8) bool {
+    return std.mem.eql(u8, arg, full) or std.mem.eql(u8, arg, short orelse "XXX");
+}
+
+fn argHasValue(arg: []const u8, full: []const u8, short: ?[]const u8) ?[]const u8 {
+    var eq_pos = std.mem.indexOf(u8, arg, "=") orelse return null;
+
+    var key = arg[0..eq_pos];
+
+    if(argIs(key, full, short)) {
+        return arg[eq_pos + 1 ..];
+    } else return null;
+}
+
+test "argIs" {
+    try testing.expect(argIs("--verbose", "--verbose", "-v"));
+    try testing.expect(argIs("-v", "--verbose", "-v"));
+    try testing.expect(!argIs("--something-else", "--verbose", "-v"));
+
+    try testing.expect(argIs("--verbose", "--verbose", null));
+    try testing.expect(!argIs("-v", "--verbose", null));
+}
+
+
+test "argHasValue" {
+    try testing.expect(argHasValue("--playbook=mybook", "--playbook", "-b") != null);
+    try testing.expect(argHasValue("-b=mybook", "--playbook", "-b") != null);
+}
+
 pub fn parseArgs(args: [][]const u8) !AppArguments {
     var result: AppArguments = .{};
+    //    --help, -h               Show this help
+    //    --help-format            Show overview of test- and playbook-formats
+    //    --initial-vars=file,-i=file   The file is processed as a key=value-list of variables made available for all tests performed
+    //    --multithread,-m         Will enable multithreading for repeated tests (in playbook)
+    //    --playbook=file,-b=file  Will load and process specified playbook
+    //    --pretty,-p              Enable prettyprinting the response data for supported Content-Types.
+    //    --show-response,-d       Output thow the response data from each request
+    //    --verbose, -v            Normal verbosity, will show more details re processing steps and response data
+    //    --verbose-curl           Sets VERBOSE for libcurl
+    if(args.len < 1) {
+        return error.NoArguments;
+    }
 
     for (args) |arg| {
-        // Handle flags (-v, -s, ...)
-        // Handle arguments with values (-o=...)
-        // Handle rest (file/folder-arguments)
-        // TODO: Revise to have a flat list of explicit checks, but split at = for such entries when comparing
-        if (arg[0] == '-') {
-            switch (arg.len) {
-                0...1 => {
-                    return error.UnknownArgument;
-                },
-                2 => {
-                    switch (arg[1]) {
-                        'h' => {
-                            return error.ShowHelp;
-                        },
-                        'v' => {
-                            result.verbose = true;
-                        },
-                        'r' => {
-                            result.recursive = true;
-                        },
-                        's' => {
-                            result.silent = true;
-                        },
-                        'd' => {
-                            result.show_response_data = true;
-                        },
-                        'f' => {
-                            result.show_pretty_response_data = true;
-                        },
-                        'm' => {
-                            result.multithreaded = true;
-                        },
-                        else => {
-                            return error.UnknownArgument;
-                        },
-                    }
-                },
-                else => {
-                    // Parse key=value-types
-                    var eq_pos = std.mem.indexOf(u8, arg, "=") orelse return error.InvalidArgumentFormat;
-
-                    var key = arg[1..eq_pos];
-                    var value = arg[eq_pos + 1 ..];
-
-
-                    if (std.mem.eql(u8, key, "o")) {
-                        try result.output_file.appendSlice(value);
-                    } else if (std.mem.eql(u8, key, "i")) {
-                        try result.input_vars_file.appendSlice(value);
-                    } else if (std.mem.eql(u8, key, "p")) {
-                        try result.playbook_file.appendSlice(value);
-                    }
-
-                },
-            }
-        } else {
-            // Is (assumed) file/folder
-            // TODO: Shall we here expand folders?
-            //       Alternatively, we can process this separately, add all entries to result.files and finally sort it by name
-            result.files.append(FilePathEntry.fromSlice(arg) catch {
-                return error.TooLongFilename;
-            }) catch {
-                return error.TooManyFiles;
-            };
+        // Flags
+        if(argIs(arg, "--help", "-h")) {
+            return error.ShowHelp;
         }
+
+        if(argIs(arg, "--help-format", null)) {
+            return error.ShowFormatHelp;
+        }
+
+        if(argIs(arg, "--multithread", "-m")) {
+            result.multithreaded = true;
+            continue;
+        }
+        
+        if(argIs(arg, "--pretty", "-p")) {
+            result.show_pretty_response_data = true;
+            continue;
+        }
+
+        if(argIs(arg, "--show-response", "-d")) {
+            result.show_response_data = true;
+            continue;
+        }
+
+        if(argIs(arg, "--verbose", "-v")) {
+            result.verbose = true;
+            continue;
+        }
+
+        if(argIs(arg, "--verbose-curl", null)) {
+            result.verbose_curl = true;
+            continue;
+        }
+
+        // Value-parameters
+        if(argHasValue(arg, "--initial-vars", "-i")) |value| {
+            try result.input_vars_file.appendSlice(value);
+            continue;
+        }
+
+        if(argHasValue(arg, "--playbook", "-b")) |value| {
+            try result.playbook_file.appendSlice(value);
+            continue;
+        }
+
+        // Assume ordinary files
+        result.files.append(FilePathEntry.fromSlice(arg) catch {
+            return error.TooLongFilename;
+        }) catch {
+            return error.TooManyFiles;
+        };
     }
 
     return result;
 }
 
-test "parseArgs" {
-    const default_args: AppArguments = .{};
-
+test "parseArgs verbosity" {
     {
-        var myargs = [_][]const u8{};
+        var myargs = [_][]const u8{"dummyarg"};
         var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.verbose == default_args.verbose);
+        try testing.expect(!parsed_args.verbose);
+        try testing.expect(!parsed_args.verbose_curl);
     }
-
     {
         var myargs = [_][]const u8{"-v"};
         var parsed_args = try parseArgs(myargs[0..]);
         try testing.expect(parsed_args.verbose);
     }
-
     {
-        var myargs = [_][]const u8{"-r"};
+        var myargs = [_][]const u8{"--verbose"};
         var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.recursive);
+        try testing.expect(parsed_args.verbose);
     }
-
     {
-        var myargs = [_][]const u8{"-s"};
+        var myargs = [_][]const u8{"--verbose-curl"};
         var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expect(parsed_args.silent);
+        try testing.expect(parsed_args.verbose_curl);
     }
+}
 
+test "parseArgs multithread" {
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(!parsed_args.multithreaded);
+    }
     {
         var myargs = [_][]const u8{"-m"};
         var parsed_args = try parseArgs(myargs[0..]);
         try testing.expect(parsed_args.multithreaded);
     }
+    {
+        var myargs = [_][]const u8{"--multithread"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.multithreaded);
+    }
+}
 
+test "parseArgs playbook" {
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.playbook_file.slice().len == 0);
+    }
+    {
+        var myargs = [_][]const u8{"-b=myplaybook"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
+    }
+
+    {
+        var myargs = [_][]const u8{"--playbook=myplaybook"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
+    }
+}
+
+
+test "parseArgs input vars" {
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.input_vars_file.slice().len == 0);
+    }
+    {
+        var myargs = [_][]const u8{"-i=myvars.env"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expectEqualStrings("myvars.env", parsed_args.input_vars_file.slice());
+    }
+
+    {
+        var myargs = [_][]const u8{"--initial-vars=myvars.env"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expectEqualStrings("myvars.env", parsed_args.input_vars_file.slice());
+    }
+}
+
+test "parseArgs show response" {
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(!parsed_args.show_response_data);
+    }
+    {
+        var myargs = [_][]const u8{"-d"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.show_response_data);
+    }
+    {
+        var myargs = [_][]const u8{"--show-response"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.show_response_data);
+    }
+}
+
+test "parseArgs pretty" {
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(!parsed_args.show_pretty_response_data);
+    }
+    {
+        var myargs = [_][]const u8{"-p"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.show_pretty_response_data);
+    }
+    {
+        var myargs = [_][]const u8{"--pretty"};
+        var parsed_args = try parseArgs(myargs[0..]);
+        try testing.expect(parsed_args.show_pretty_response_data);
+    }
+}
+
+test "parseArgs showHelp" {
+    {
+        var myargs = [_][]const u8{"-h"};
+        try testing.expectError(error.ShowHelp, parseArgs(myargs[0..]));
+
+    }
+    {
+        var myargs = [_][]const u8{"--help"};
+        try testing.expectError(error.ShowHelp, parseArgs(myargs[0..]));
+    }
+}
+
+test "parseArgs files" {
     {
         var myargs = [_][]const u8{"somefile"};
         var parsed_args = try parseArgs(myargs[0..]);
@@ -161,17 +321,6 @@ test "parseArgs" {
         try testing.expectEqualStrings("somefile", parsed_args.files.get(0).slice());
     }
 
-    {
-        var myargs = [_][]const u8{"-o=myoutfile"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expectEqualStrings("myoutfile", parsed_args.output_file.slice());
-    }
-
-    {
-        var myargs = [_][]const u8{"-p=myplaybook"};
-        var parsed_args = try parseArgs(myargs[0..]);
-        try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
-    }
 }
 
 pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray(FilePathEntry, max_files)) !void {

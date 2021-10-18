@@ -118,29 +118,20 @@ const ExecutionStats = struct {
 pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
 
 pub const AppArguments = struct {
-    //-v
-    // TODO: need better control of verbosity:
-    //       * Show finer details of tests being performed, envs being loaded, expression executed etc. AKA sapt-verbose
-    //       * Show all i/o. AKA curl-verbose
-    //       * Less important: High-fidelity details to help debugging during development
+    //--verbose,-v
     verbose: bool = false,
-    //-d
+    //--verbose-curl
+    verbose_curl: bool = false,
+    //--show-response,-d
     show_response_data: bool = false,
+    //--pretty,-p
     show_pretty_response_data: bool = false,
-    //TODO: --pretty - try to print the response-data in a formatted way based on Content-Type
-    //-v=curl, -v=debug, -v=data  -- -v=data == -d,
-    //-r
-    recursive: bool = false,
     //-m allows for concurrent requests for repeated tests
     multithreaded: bool = false,
     //-i=<file>
     input_vars_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
-    //-o=<file>
-    output_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
-    //-f=<file>
+    //-b=<file>
     playbook_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
-    //-s
-    silent: bool = false,
     // ...
     files: std.BoundedArray(FilePathEntry, 128) = initBoundedArray(FilePathEntry, 128),
 };
@@ -517,6 +508,10 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     var parsed_args = argparse.parseArgs(args) catch |e| switch (e) {
         error.ShowHelp => {
             argparse.printHelp(true);
+            return ExecutionStats{};
+        },
+        error.ShowFormatHelp => {
+            argparse.printFormatHelp();
             return ExecutionStats{};
         },
         else => {

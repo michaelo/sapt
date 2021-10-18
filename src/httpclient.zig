@@ -24,7 +24,6 @@ pub fn deinit() void {
 }
 
 /// Primary worker function performing the request and handling the response
-/// TODO: Factor out a pure cURL-handler?
 pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.EntryResult) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena.deinit();
@@ -61,7 +60,7 @@ pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.E
     }
 
     // Debug
-    if (args.verbose) {
+    if (args.verbose_curl) {
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
             return error.CouldNotSetVerbose;
     }

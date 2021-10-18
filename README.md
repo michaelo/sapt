@@ -353,48 +353,27 @@ Set of variable extraction expressions, optional:
 Must fix to be usable AKA pri-TODO:
 -------------
 * Determine if current solution where variables can't be overwritten is a good idea or not.
+* Env-files: It shall be possible to prive a .env-file from another folder, and have it consistent throughout run. The use case for -i=...+ Or separate on files identified when passing as folders vs specifically mentioned?
 
 TODO, somewhat ordered:
 ------------
-* Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
+* Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * TBD: shall we provide libcurl? If so, make sure to conform to https://curl.se/docs/copyright.html.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Fail if test has variable that's not substituted? Or at least warn.
 * Code quality - especially in main.zig - is quite crap at this point.
-* Arguments: Revise names for all arguments. E.g. -f is now "format", while it's commonly assumed to be "force".
-* sapt -h should also provide information about format of test files, and perhaps also playbooks, to be self-contained.
-    * Propose:
-        * sapt -h test
-        * sapt -h playbook
+* Support providing variables as parameters? E.g. sapt myfile.pi -DMYVAR=value -DMYVAR2=value2
 * Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
-* TBD: Allow support for OS-environment variables. Control access by flag?
 * TBD: Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
-* Implement support to do step-by-step tests by e.g. requiring user to press enter between each test
-* Provide better granularity for verbosity: e.g. separate between curl-verbose and sapt-verbose
+* Implement support to do step-by-step tests by e.g. requiring user to press enter between each test?
 * Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
-    * Support repeating sequence of actions? E.g. add, check, remove.
-        
-            # Proposal of such functionality:
-            group {
-            # Include a couple tests
-            @test1.pi
-            @test2.pi
-
-            # Perhaps also an in-playbook test?
-            > GET https://example.com/
-            < 200
-            } * 1000
-            #TBD: Must ensure parsing doesn't get confused with '}' inside headers, payload, er extraction-expressions.
-            This smells like feature creep, so will wait for a proper use case before considering.
-
-    * TBD: The current time of request - are we sure we're testing the correct segment?
 * Test/verify safety of string lengths: parsing + how we add 0 for c-interop
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
 * TBD: Shall we support "repeats" in test-files as well? Not only playbooks.
-* Support HTTP follow?
 * Actively limit the set of protocols we allow. We currently just forward the URL however it is to CURL
+* Support HTTP follow? Not now - we want explicit tests.
 * Finish basic syntax highligh ruleset for the test-files
 * Dev: Test feature flags based on comptime-parsing a feature-file
 
