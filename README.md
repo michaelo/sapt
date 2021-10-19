@@ -353,7 +353,7 @@ Set of variable extraction expressions, optional:
 Must fix to be usable AKA pri-TODO:
 -------------
 * Determine if current solution where variables can't be overwritten is a good idea or not.
-* Env-files: It shall be possible to prive a .env-file from another folder, and have it consistent throughout run. The use case for -i=...+ Or separate on files identified when passing as folders vs specifically mentioned?
+* Revise license and bundling for zlib
 
 TODO, somewhat ordered:
 ------------

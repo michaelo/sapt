@@ -15,6 +15,9 @@ pub fn printHelp(full: bool) void {
         \\
         \\Usage: {0s} [arguments] [file1.pi file2.pi ... fileN.pi]
         \\
+        \\try '{0s} --help' for more information.
+        \\
+        \\
     , .{ config.APP_NAME, config.APP_VERSION});
 
     if (!full) return;

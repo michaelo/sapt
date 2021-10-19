@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.build.Builder) !void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -14,10 +14,43 @@ pub fn build(b: *std.build.Builder) void {
 
     const exe = b.addExecutable("sapt", "src/main.zig");
     exe.linkSystemLibrary("c");
-    // exe.initExtraArgs(linkage = exe.Linkage.static);
-    exe.linkSystemLibrary("libcurl"); // TODO: verify if it's statically
+
     exe.setTarget(target);
+    // This seems quite hacky, but makes it currently possible to cross-build provided we have prebuilt libcurl.dll/.so/.dylib (and zlib1?)
+    if(target.isNative()) {
+        exe.linkSystemLibrary("libcurl");
+    } else {
+        std.debug.print("Crossbuilding\n", .{});
+        // TODO: Check arch as well to ensure x86_64
+        switch(target.getOsTag()) {
+            .linux => {
+                exe.linkSystemLibrary("libcurl");
+                try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
+                exe.addLibPath("xbuild/libs/x86_64-linux");
+                
+            },
+            .macos => {
+                exe.linkSystemLibrary("libcurl");
+                try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
+                exe.addLibPath("xbuild/libs/x86_64-macos");
+            },
+            .windows => {
+                exe.linkSystemLibrary("libcurl");
+                try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
+                exe.addLibPath("xbuild/libs/x86_64-windows");
+                // TODO: Copy in zlib1.dll and libcurl.dll to prefix
+            },
+            else => {
+                // Not supported?
+                return error.UnsupportedCrossTarget;
+            }
+        }
+    }
     exe.setBuildMode(mode);
+    // try exe.lib_paths.resize(0); 
+    // exe.addLibPath("xbuild/libs/x86_64-linux");
+    // exe.addLibPath("xbuild/libs/x86_64-mac");
+    // exe.addLibPath("xbuild/libs/x86_64-windows/lib");
     exe.install();
 
     const run_cmd = exe.run();
