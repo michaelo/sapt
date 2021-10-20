@@ -353,14 +353,19 @@ Set of variable extraction expressions, optional:
 Must fix to be usable AKA pri-TODO:
 -------------
 * Determine if current solution where variables can't be overwritten is a good idea or not.
-* Revise license and bundling for zlib
 
 TODO, somewhat ordered:
 ------------
+* Credits: Determine all deps we need to ship.
+  * libcurl for all platforms - license added to CREDITS
+  * zlib for Windows - license added to CREDITS
+  * OpenSSL?
+  * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
-    * TBD: shall we provide libcurl? If so, make sure to conform to https://curl.se/docs/copyright.html.
+    * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Fail if test has variable that's not substituted? Or at least warn.
+* Get proper version-control of which dynamic libraries we depend on/provide.
 * Code quality - especially in main.zig - is quite crap at this point.
 * Support providing variables as parameters? E.g. sapt myfile.pi -DMYVAR=value -DMYVAR2=value2
 * Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
