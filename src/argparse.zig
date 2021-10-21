@@ -5,9 +5,29 @@ const fs = std.fs;
 const main = @import("main.zig");
 const utils = @import("utils.zig");
 const config = @import("config.zig");
-const AppArguments = main.AppArguments;
-const FilePathEntry = main.FilePathEntry;
 
+pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
+
+pub const AppArguments = struct {
+    //--verbose,-v
+    verbose: bool = false,
+    //--verbose-curl TODO: Rename to --verbose-http / --verbose-request ?
+    verbose_curl: bool = false,
+    //--insecure
+    ssl_insecure: bool = false,
+    //--show-response,-d
+    show_response_data: bool = false,
+    //--pretty,-p
+    show_pretty_response_data: bool = false,
+    //-m allows for concurrent requests for repeated tests
+    multithreaded: bool = false,
+    //-i=<file>
+    input_vars_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = utils.initBoundedArray(u8, config.MAX_PATH_LEN),
+    //-b=<file>
+    playbook_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = utils.initBoundedArray(u8, config.MAX_PATH_LEN),
+    // ...
+    files: std.BoundedArray(FilePathEntry, 128) = utils.initBoundedArray(FilePathEntry, 128),
+};
 
 pub fn printHelp(full: bool) void {
     debug(
@@ -21,7 +41,7 @@ pub fn printHelp(full: bool) void {
     , .{ config.APP_NAME, config.APP_VERSION});
 
     if (!full) return;
-
+    
     debug(
         \\{0s} api_is_healthy.pi
         \\{0s} testsuite01/
@@ -39,6 +59,7 @@ pub fn printHelp(full: bool) void {
         \\                      Naive support for JSON, XML and HTML
         \\  -m, --multithread   Activates multithreading - relevant for repeated tests
         \\                      via playbooks
+        \\      --insecure      Don't verify SSL certificates
         \\  -i=file, --initial-vars=file
         \\                      Provide file with variable-definitions made available to
         \\                      all tests
@@ -136,6 +157,7 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
     //    --help, -h               Show this help
     //    --help-format            Show overview of test- and playbook-formats
     //    --initial-vars=file,-i=file   The file is processed as a key=value-list of variables made available for all tests performed
+    //    --insecure               Don't verify SSL certificates
     //    --multithread,-m         Will enable multithreading for repeated tests (in playbook)
     //    --playbook=file,-b=file  Will load and process specified playbook
     //    --pretty,-p              Enable prettyprinting the response data for supported Content-Types.
@@ -178,6 +200,11 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
 
         if(argIs(arg, "--verbose-curl", null)) {
             result.verbose_curl = true;
+            continue;
+        }
+
+        if(argIs(arg, "--insecure", null)) {
+            result.ssl_insecure = true;
             continue;
         }
 

@@ -23,8 +23,14 @@ pub fn deinit() void {
     cURL.curl_global_cleanup();
 }
 
+pub const ProcessArgs = struct {
+    ssl_insecure: bool = false,
+    verbose: bool = false,
+};
+
+
 /// Primary worker function performing the request and handling the response
-pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.EntryResult) !void {
+pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryResult) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena.deinit();
     var allocator = &arena.allocator;
@@ -60,9 +66,17 @@ pub fn processEntry(entry: *main.Entry, args: main.AppArguments, result: *main.E
     }
 
     // Debug
-    if (args.verbose_curl) {
+    if (args.verbose) {
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
             return error.CouldNotSetVerbose;
+    }
+
+    if (args.ssl_insecure) {
+        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 0)) != cURL.CURLE_OK)
+            return error.CouldNotSetSslVerifyPeer;
+
+        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 0)) != cURL.CURLE_OK)
+            return error.CouldNotSetSslVerifyHost;    
     }
 
     // Pass headers

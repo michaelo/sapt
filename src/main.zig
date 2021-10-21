@@ -33,6 +33,7 @@ const types = @import("types.zig");
 const HttpMethod = types.HttpMethod;
 const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
+const AppArguments = argparse.AppArguments;
 
 const CONFIG_MAX_PAYLOAD_SIZE = 1024 * 1024;
 const CONFIG_MAX_URL_LEN = 2048;
@@ -115,26 +116,6 @@ const ExecutionStats = struct {
     num_fail: u64 = 0,
 };
 
-pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
-
-pub const AppArguments = struct {
-    //--verbose,-v
-    verbose: bool = false,
-    //--verbose-curl
-    verbose_curl: bool = false,
-    //--show-response,-d
-    show_response_data: bool = false,
-    //--pretty,-p
-    show_pretty_response_data: bool = false,
-    //-m allows for concurrent requests for repeated tests
-    multithreaded: bool = false,
-    //-i=<file>
-    input_vars_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
-    //-b=<file>
-    playbook_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = initBoundedArray(u8, config.MAX_PATH_LEN),
-    // ...
-    files: std.BoundedArray(FilePathEntry, 128) = initBoundedArray(FilePathEntry, 128),
-};
 
 fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
     if (entry.expected_response_regex.constSlice().len > 0 and std.mem.indexOf(u8, result.response_first_1mb.constSlice(), entry.expected_response_regex.constSlice()) == null) {
@@ -159,6 +140,8 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
     stats.time_max = 0;
     stats.time_min = std.math.maxInt(i64);
 
+    
+
     if (args.multithreaded and repeats > 1) {
         if (args.verbose) Console.plain("Starting multithreaded test ({d} threads working total {d} requests)\n", .{ try std.Thread.getCpuCount(), repeats });
 
@@ -174,7 +157,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
 
             pub fn worker(self: *Self) void {
                 var entry_time_start = std.time.milliTimestamp();
-                if (httpclient.processEntry(self.entry, self.args.*, self.result)) {
+                if (httpclient.processEntry(self.entry, .{.ssl_insecure = self.args.ssl_insecure, .verbose = self.args.verbose_curl}, self.result)) {
                     if (!isEntrySuccessful(self.entry, self.result)) {
                         self.result.num_fails += 1;
                         self.result.conclusion = false;
@@ -215,7 +198,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
         var i: usize = 0;
         while (i < repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
-            if (httpclient.processEntry(entry, args, result)) {
+            if (httpclient.processEntry(entry, .{.ssl_insecure = args.ssl_insecure, .verbose = args.verbose_curl}, result)) {
                 if (!isEntrySuccessful(entry, result)) {
                     result.num_fails += 1;
                     result.conclusion = false;
