@@ -238,7 +238,10 @@ pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(
     std.sort.sort(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
 
     for (variables_sets) |variables| {
-        try expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables);
+        expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch(e) {
+            error.NoSuchVariableFound => {},
+            else => return e
+        };
     }
 
     try expandFunctions(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs);
@@ -397,7 +400,10 @@ fn funcBase64enc(_: *std.mem.Allocator, value: []const u8, out_buf: *std.Bounded
 fn funcEnv(allocator: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     const env_value = try std.process.getEnvVarOwned(allocator, value);
     defer allocator.free(env_value);
-    try out_buf.insertSlice(0, env_value);
+    try out_buf.insertSlice(0, utils.sliceUpTo(u8, env_value, 0, 1024));
+    if(env_value.len > out_buf.capacity()) {
+        return error.Overflow;
+    }
 }
 
 test "funcBase64enc" {
@@ -413,7 +419,10 @@ test "funcEnv" {
     var input = "PATH";
 
     var output = try std.BoundedArray(u8, 1024).init(0);
-    try funcEnv(std.testing.allocator, input, &output);
+    funcEnv(std.testing.allocator, input, &output) catch |e| switch(e) {
+        error.Overflow => {},
+        else => return e
+    };
     try testing.expect(output.slice().len > 0);
 }
 

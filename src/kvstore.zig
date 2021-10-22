@@ -73,8 +73,8 @@ pub const KvStore = struct {
         return self.store.slice().len;
     }
 
-    pub fn slice(self: KvStore) []KvStoreEntry {
-        return self.store.constSlice();
+    pub fn slice(self: *KvStore) []KvStoreEntry {
+        return self.store.slice();
     }
 
     pub fn fromBuffer(buf: []const u8) !KvStore {

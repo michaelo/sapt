@@ -41,6 +41,8 @@ const CONFIG_MAX_ENV_FILE_SIZE = 1024 * 1024;
 const CONFIG_MAX_TEST_FILE_SIZE = 1024 * 1024;
 const CONFIG_MAX_PLAYBOOK_FILE_SIZE = 1024 * 1024;
 
+// To be replacable, e.g. for tests
+pub var httpClientProcessEntry: fn (*Entry, httpclient.ProcessArgs, *EntryResult) anyerror!void = undefined;
 
 const initBoundedArray = utils.initBoundedArray;
 
@@ -157,7 +159,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
 
             pub fn worker(self: *Self) void {
                 var entry_time_start = std.time.milliTimestamp();
-                if (httpclient.processEntry(self.entry, .{.ssl_insecure = self.args.ssl_insecure, .verbose = self.args.verbose_curl}, self.result)) {
+                if (httpClientProcessEntry(self.entry, .{.ssl_insecure = self.args.ssl_insecure, .verbose = self.args.verbose_curl}, self.result)) {
                     if (!isEntrySuccessful(self.entry, self.result)) {
                         self.result.num_fails += 1;
                         self.result.conclusion = false;
@@ -198,7 +200,7 @@ fn processEntryMain(test_context: *TestContext, args: AppArguments, buf: []const
         var i: usize = 0;
         while (i < repeats) : (i += 1) {
             var entry_time_start = std.time.milliTimestamp();
-            if (httpclient.processEntry(entry, .{.ssl_insecure = args.ssl_insecure, .verbose = args.verbose_curl}, result)) {
+            if (httpClientProcessEntry(entry, .{.ssl_insecure = args.ssl_insecure, .verbose = args.verbose_curl}, result)) {
                 if (!isEntrySuccessful(entry, result)) {
                     result.num_fails += 1;
                     result.conclusion = false;
@@ -270,7 +272,7 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
 
     if (conclusion) {
         // No need to extract if not successful
-        // TODO: Is failure to extract an failure to the test? I'd say yes.
+        // TBD: Is failure to extract a failure to the test? I'd say yes.
         try extractExtractionEntries(test_context.entry, test_context.result, extracted_vars);
 
         // Print all stored variables
@@ -315,24 +317,33 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
     return result;
 }
 
-fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
-    // Load playbook
-    // var scrap: [4*1024]u8 = undefined;
-    var buf_scrap = initBoundedArray(u8,16*1024);
+fn processPlaybookFile(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     var buf_playbook = initBoundedArray(u8, CONFIG_MAX_PLAYBOOK_FILE_SIZE); // Att: this must be kept as it is used to look up data from for the segments
-    var buf_test = initBoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE);
 
     io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
         Console.red("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
         return error.CouldNotReadFile;
     };
 
+    // Playbooks shall resolve file-includes relative to self
+    var original_cwd = fs.cwd();
+    // TODO: This fails if playbook is in cwd.
+    var playbook_basedir = try original_cwd.openDir(io.getParent(playbook_path), .{});
+
+    return processPlaybookBuf(test_context, &buf_playbook, playbook_basedir, args, input_vars, extracted_vars);
+}
+
+
+fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArray(u8, CONFIG_MAX_PLAYBOOK_FILE_SIZE), playbook_basedir: std.fs.Dir, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
+    // Load playbook
+    // var scrap: [4*1024]u8 = undefined;
+    var buf_scrap = initBoundedArray(u8,16*1024);
+    // var buf_playbook = initBoundedArray(u8, CONFIG_MAX_PLAYBOOK_FILE_SIZE); // Att: this must be kept as it is used to look up data from for the segments
+    var buf_test = initBoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE);
+
     var segments = initBoundedArray(parser.PlaybookSegment, 128);
     try segments.resize(parser.parsePlaybook(buf_playbook.constSlice(), segments.unusedCapacitySlice()));
 
-    // Playbooks shall resolve file-includes relative to self
-    var original_cwd = fs.cwd();
-    var playbook_basedir = try original_cwd.openDir(io.getParent(playbook_path), .{});
 
     // Iterate over playbook and act according to each type
     var num_failed: u64 = 0;
@@ -421,6 +432,55 @@ fn processPlaybook(test_context: *TestContext, playbook_path: []const u8, args: 
     };
 }
 
+test "extracted variables shall be expanded in next test" {
+    var buf_test1 = try std.BoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE).fromSlice(
+        \\> GET https://some.url/api/step1
+        \\< 0
+        \\MYVAR=token:"()"
+        [0..]
+    );
+
+    var buf_test2 = try std.BoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE).fromSlice(
+        \\> GET https://some.url/api/step2
+        \\--
+        \\MYVAR={{MYVAR}}
+        \\< 0
+        [0..]
+    );
+
+    var context = TestContext{};
+    var args = AppArguments{};
+    var input_vars = kvstore.KvStore{};
+    var extracted_vars = kvstore.KvStore{};
+    var variables_sets = [_]*kvstore.KvStore{&input_vars, &extracted_vars};
+
+    // Mock httpclient, this can be generalized for multiple tests
+    const HttpClientOverrides = struct {
+        pub fn step1(_: *Entry, _: httpclient.ProcessArgs, result: *EntryResult) !void {
+            try result.response_first_1mb.resize(0);
+            try result.response_first_1mb.appendSlice(
+                \\token:"123123"
+                [0..]
+            );
+        }
+    };
+
+    // Handle step 1
+    var oldProcess = httpClientProcessEntry;
+    httpClientProcessEntry = HttpClientOverrides.step1;
+    parser.expandVariablesAndFunctions(buf_test1.buffer.len, &buf_test1, variables_sets[0..]) catch {};
+    try processAndEvaluateEntryFromBuf(&context, 1, 2, "step1"[0..], buf_test1.constSlice(), args, &input_vars, &extracted_vars, 1, 0);
+    try testing.expect(extracted_vars.slice().len == 1);
+    
+    // Handle step 2
+    parser.expandVariablesAndFunctions(buf_test2.buffer.len, &buf_test2, variables_sets[0..]) catch {};
+    try testing.expect(std.mem.indexOf(u8, buf_test2.constSlice(), "{{MYVAR}}") == null);
+    try testing.expect(std.mem.indexOf(u8, buf_test2.constSlice(), "MYVAR={{MYVAR}}") == null);
+    try testing.expect(std.mem.indexOf(u8, buf_test2.constSlice(), "MYVAR=123123") != null);
+    
+    httpClientProcessEntry = oldProcess;
+}
+
 // Regular path for tests passed as arguments
 fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     var buf_testfile = initBoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE);
@@ -432,6 +492,8 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
     var folder_local_vars: kvstore.KvStore = undefined;
     var current_folder: []const u8 = undefined;
     var variables_sets = [_]*kvstore.KvStore{&folder_local_vars, input_vars, extracted_vars};
+
+    // TODO: Get number of actual tests, right now the slice contains .env's as well, and this messes up the "n/m" print pr step
     for (args.files.slice()) |file| {
         // If new folder: clear folder_local_vars
         if (!std.mem.eql(u8, current_folder, io.getParent(file.constSlice()))) {
@@ -488,6 +550,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     // Scrap-buffer to use throughout tests
     var test_context = try allocator.create(TestContext);
 
+    // Parse arguments / show help
     var parsed_args = argparse.parseArgs(args) catch |e| switch (e) {
         error.ShowHelp => {
             argparse.printHelp(true);
@@ -504,6 +567,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
         },
     };
 
+    // Expand files e.g. if folders are passed
     if (parsed_args.verbose) Console.grey("Processing input file arguments\n", .{});
     argparse.processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
         fatal("Could not process input file arguments: {s}\n", .{e});
@@ -512,7 +576,6 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     var input_vars = kvstore.KvStore{};
     if (parsed_args.input_vars_file.constSlice().len > 0) {
         if (parsed_args.verbose) Console.plain("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
-        // TODO: expand variables within envfiles? This to e.g. allow env-files to refer to OS ENV. Any proper use case?
         input_vars = try envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
     }
 
@@ -521,7 +584,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     if (parsed_args.playbook_file.constSlice().len > 0) {
         // Process playbook
         if (parsed_args.verbose) Console.plain("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
-        stats = try processPlaybook(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
+        stats = try processPlaybookFile(test_context, parsed_args.playbook_file.constSlice(), parsed_args, &input_vars, &extracted_vars);
     } else {
         // Process regular list of entries
         stats = try processTestlist(test_context, &parsed_args, &input_vars, &extracted_vars);
@@ -543,6 +606,9 @@ pub fn main() !void {
         argparse.printHelp(false);
         std.process.exit(0);
     }
+    
+    // Set up default handler to process requests
+    httpClientProcessEntry = httpclient.processEntry;
 
     var stats = mainInner(aa, args[1..]) catch |e| {
         fatal("Exited due to failure: {s}\n", .{e});

@@ -8,7 +8,6 @@
 /// TBD: Support basic syntax highlighting as well?
 /// TBD: Can add basic CSS and JS-formatters as well to support in-filed <style> and <script>
 const std = @import("std");
-const stdout = std.io.getStdOut().writer();
 const testing = std.testing;
 const debug = std.debug.print;
 const Writer = std.fs.File.Writer;
@@ -89,7 +88,7 @@ test "isContentTypeXml" {
 }
 
 /// Simple passes through with not formatting actions
-fn passthrough(writer: Writer, data: []const u8) !void {
+fn passthrough(writer: Writer, data: []const u8) anyerror!void {
     try writer.writeAll(data);
 }
 
@@ -156,6 +155,7 @@ fn prettyprintJson(writer: Writer, data: []const u8) anyerror!void {
 }
 
 test "prettyprintJson" {
+    const stdout = std.io.getStdOut().writer();
     {
         var data =
             \\{"key":"value","key2":[1,2,3],"key3":{},"key4":5,"key5":[{},{"inner":["hepp"]}]}
@@ -275,6 +275,7 @@ fn prettyprintXml(writer: Writer, data: []const u8) anyerror!void {
 }
 
 test "prettyprintXml" {
+    const stdout = std.io.getStdOut().writer();
     {
         var data =
             \\<?xml version="1.0" encoding="UTF-8"?><some><element>content</element><sibling><selfclosed />siblingcontent</sibling></some>
@@ -377,6 +378,7 @@ fn isHtmlOrXmlRawContentsElement(el: []const u8) bool {
 const prettyprintHtml = prettyprintXml;
 
 test "prettyprintHtml" {
+    const stdout = std.io.getStdOut().writer();
     {
         var data =
             \\<!doctype html><html dir="ltr" lang="no"><head> <meta charset="utf-8"> <title>MyTitle.com</title> <meta name="Description" content="Løsningen for deg som ønsker å varsles ved kommende problemvær slik at du kan ta bedre vare på dine utsatte eiendeler"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <meta name="theme-color" content="#16161d"> <meta name="apple-mobile-web-app-capable" content="yes"> <meta http-equiv="x-ua-compatible" content="IE=Edge"> <link rel="modulepreload" href="/build/p-64e23fb1.js"><link rel="modulepreload" href="/build/p-15a7289e.js"><link rel="modulepreload" href="/build/p-9b6a9315.js"><link rel="modulepreload" href="/build/p-ee911213.js"><script type="module" src="/build/p-64e23fb1.js" data-stencil data-resources-url="/build/" data-stencil-namespace="app"></script> <script nomodule="" src="/build/app.js" data-stencil></script> <style>@font-face{font-family:Roboto-Thin;src:url(/assets/fonts/Roboto-Thin.ttf)}@font-face{font-family:Roboto-Light;src:url(/assets/fonts/Roboto-Light.ttf)}@font-face{font-family:Roboto-Regular;src:url(/assets/fonts/Roboto-Regular.ttf)}body{margin:0px;padding:0px;font-family:Roboto-Light;line-height:1.5}header{}</style> <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"> <link rel="apple-touch-icon" href="/assets/icon/icon.png"> <link rel="icon" type="image/x-icon" href="/assets/icon/favicon.png"> <link rel="manifest" href="/manifest.json"> </head> <body id="top"> <app-root></app-root> </body></html>
