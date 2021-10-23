@@ -174,6 +174,10 @@ Development build/run:
 
     zig build run
 
+Run all tests:
+
+    zig build test
+
 Install:
 
     zig build install --prefix-exe-dir /usr/local/bin

@@ -126,6 +126,7 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
 
 test "threadpool basic implementation" {
     const MyPayloadResult = struct {
+        mutex: Mutex = Mutex{},
         total: u64 = 0,
     };
     //   
@@ -135,10 +136,13 @@ test "threadpool basic implementation" {
         result: *MyPayloadResult,
 
         pub fn worker(self: *Self) void {
-            // _ = self;
+            const held = self.result.mutex.acquire();
+            defer held.release();
+            
             var total = self.result.total;
             total += self.data;
             total += self.data;
+            
             self.result.total = total;
         }
     };
@@ -157,6 +161,6 @@ test "threadpool basic implementation" {
     }
     try pool.start();
     pool.join();
-    try testing.expect(checkresult == result.total);
+    try testing.expectEqual(checkresult, result.total);
     debug("Result: {d}\n", .{result.total});
 }
