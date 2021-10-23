@@ -161,7 +161,7 @@ Build:
 The tool is written in [zig](https://ziglang.org/), and depends on [libcurl](https://curl.se/libcurl/).
 
 Prerequisites:
-* [zig is installed](https://ziglang.org/download/) and available in path
+* [zig is installed](https://ziglang.org/download/) and available in path. Development is done on latest-ish 0.9.0
 * [libcurl is installed](https://curl.se/download.html) and library and headers are available in either path or through pkg-config.
 
 Get source:
@@ -217,7 +217,7 @@ Terminology:
 
 Limitations:
 ------
-Due in part to the efforts to both having a clear understanding of the RAM-usage, as well as keeping the heap-usage low and controlled, a set of discrete limitations are currently cheracteristic for the tool. I will very likely revise a lot of these decisions going forward - but here they are:
+Due in part to the efforts to both having a clear understanding of the RAM-usage, as well as keeping the heap-usage low and controlled, a set of discrete limitations are currently characteristic for the tool. I will very likely revise a lot of these decisions going forward - but here they are:
 
 <table>
     <thead>
