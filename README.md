@@ -353,13 +353,32 @@ Set of variable extraction expressions, optional:
 
 *TBD: Might support more regex-like expressions to control e.g. character groups and such.*
 
-
-Must fix to be usable AKA pri-TODO:
+Exit codes
 -------------
-* Determine if current solution where variables can't be overwritten is a good idea or not.
+sapt is also usable in e.g. cron jobs to monitor availability of a service.
+
+This is a tentative list of exit codes currently implemented in sapt:
+
+* 0: OK
+* 1: Something went wrong processing the input set
+* 2: One or more tests failed
+
+
+Use cases
+-------------
+This sections aims to provide a set of example use cases for which sapt can be useful. This is not an exchaustive list, but please let me know if any other use cases are found:
+
+* Test / explore the behaviour of an API / web service
+* Describe and verify desired behviour when developing a service - e.g. TDD-like process
+* Monitor a set of relevant endpoints to quickly debug which - if any - one fails
+* Cron-job to monitor a service
+* Load-testing
+
+
 
 TODO, somewhat ordered:
 ------------
+* Determine if current solution where variables can't be overwritten is a good idea or not.
 * Credits: Determine all deps we need to ship.
   * libcurl for all platforms - license added to CREDITS
   * zlib for Windows - license added to CREDITS
