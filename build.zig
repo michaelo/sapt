@@ -17,27 +17,31 @@ pub fn build(b: *std.build.Builder) !void {
 
     exe.setTarget(target);
     // This seems quite hacky, but makes it currently possible to cross-build provided we have prebuilt libcurl.dll/.so/.dylib (and zlib1?)
+    // Cross-builds with windows host: always libcurl
+    // Cross-builds with WSL host: 
     if(target.isNative()) {
         exe.linkSystemLibrary("libcurl");
     } else {
         std.debug.print("Crossbuilding\n", .{});
+        // exe.addIncludeDir("/usr/include/");
+        // exe.addLibPath("/usr/include/"); // TODO: Only for linux as host?
         // TODO: Check arch as well to ensure x86_64
         switch(target.getOsTag()) {
             .linux => {
                 exe.linkSystemLibrary("libcurl");
-                try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
-                exe.addLibPath("xbuild/libs/x86_64-linux");
-                
+                // try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
+                try exe.lib_paths.insert(0, "xbuild/libs/x86_64-linux");
+               
             },
             .macos => {
                 exe.linkSystemLibrary("libcurl");
-                try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
-                exe.addLibPath("xbuild/libs/x86_64-macos");
+                // try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
+                try exe.lib_paths.insert(0, "xbuild/libs/x86_64-macos");
             },
             .windows => {
                 exe.linkSystemLibrary("libcurl");
-                try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
-                exe.addLibPath("xbuild/libs/x86_64-windows");
+                // try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
+                try exe.lib_paths.insert(0, "xbuild/libs/x86_64-windows");
                 // TODO: Copy in zlib1.dll and libcurl.dll to prefix
             },
             else => {

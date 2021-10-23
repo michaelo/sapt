@@ -3,4 +3,4 @@ zig-out/
 builds/
 /libs/
 out/
-artifacts/
+artifacts*/
