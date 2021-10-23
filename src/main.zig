@@ -493,6 +493,14 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
     var current_folder: []const u8 = undefined;
     var variables_sets = [_]*kvstore.KvStore{&folder_local_vars, input_vars, extracted_vars};
 
+    // Get num of .pi-files in args.files
+    var total_tests: u64 = 0;
+    for(args.files.constSlice()) |file| {
+        if (std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) {
+            total_tests += 1;
+        }
+    }
+
     // TODO: Get number of actual tests, right now the slice contains .env's as well, and this messes up the "n/m" print pr step
     for (args.files.slice()) |file| {
         // If new folder: clear folder_local_vars
@@ -522,7 +530,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
         // Expand all variables
         parser.expandVariablesAndFunctions(buf_testfile.buffer.len, &buf_testfile,  variables_sets[0..]) catch {};
 
-        if (processAndEvaluateEntryFromBuf(test_context, num_processed, args.files.slice().len, file.constSlice(), buf_testfile.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
+        if (processAndEvaluateEntryFromBuf(test_context, num_processed, total_tests, file.constSlice(), buf_testfile.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
             // OK
         } else |_| {
             num_failed += 1;
