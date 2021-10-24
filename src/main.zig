@@ -327,8 +327,9 @@ fn processPlaybookFile(test_context: *TestContext, playbook_path: []const u8, ar
 
     // Playbooks shall resolve file-includes relative to self
     var original_cwd = fs.cwd();
-    // TODO: This fails if playbook is in cwd.
-    var playbook_basedir = try original_cwd.openDir(io.getParent(playbook_path), .{});
+    // If playbook_parent_path is empty (if file is in cwd), pass in "." as dir-reference. Any OS'es this doesn't work for?
+    var playbook_parent_path = io.getParent(playbook_path);
+    var playbook_basedir = try original_cwd.openDir(if(playbook_parent_path.len > 0) playbook_parent_path else ".", .{});
 
     return processPlaybookBuf(test_context, &buf_playbook, playbook_basedir, args, input_vars, extracted_vars);
 }
