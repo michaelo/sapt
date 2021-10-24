@@ -50,8 +50,9 @@ pub fn printHelp(full: bool) void {
         \\{0s} -i=generaldefs/.env testsuite01/
         \\
         \\Arguments
-        \\  -h, --help          Show this help
-        \\      --help-format   Show details regarding file formats
+        \\  -h, --help          Show this help and exit
+        \\      --help-format   Show details regarding file formats and exit
+        \\      --version       Show version and exit
         \\  -v, --verbose       Verbose output
         \\      --verbose-curl  Verbose output from libcurl
         \\  -d, --show-response Show response data
@@ -171,11 +172,18 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
     for (args) |arg| {
         // Flags
         if(argIs(arg, "--help", "-h")) {
-            return error.ShowHelp;
+            printHelp(true);
+            return error.OkExit;
         }
 
         if(argIs(arg, "--help-format", null)) {
-            return error.ShowFormatHelp;
+            printFormatHelp();
+            return error.OkExit;
+        }
+
+        if(argIs(arg, "--version", null)) {
+            debug("{0s} v{1s}\n", .{config.APP_NAME, config.APP_VERSION});
+            return error.OkExit;
         }
 
         if(argIs(arg, "--multithread", "-m")) {
@@ -350,12 +358,12 @@ test "parseArgs pretty" {
 test "parseArgs showHelp" {
     {
         var myargs = [_][]const u8{"-h"};
-        try testing.expectError(error.ShowHelp, parseArgs(myargs[0..]));
+        try testing.expectError(error.OkExit, parseArgs(myargs[0..]));
 
     }
     {
         var myargs = [_][]const u8{"--help"};
-        try testing.expectError(error.ShowHelp, parseArgs(myargs[0..]));
+        try testing.expectError(error.OkExit, parseArgs(myargs[0..]));
     }
 }
 
@@ -380,7 +388,6 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
         var file: *FilePathEntry = undefined;
         while (i < files.slice().len) : (i += 1) {
             file = &files.get(i);
-            // debug("Processing: {s}\n", .{file.slice()}); # TODO:
             // Verify that file/folder exists, otherwise fail
             cwd.access(file.constSlice(), readFlags) catch {
                 debug("Can not access '{s}'\n", .{file.slice()});
@@ -400,9 +407,6 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                 var stat = try (try dir.openFile(a_path.name, readFlags)).stat();
                 switch (stat.kind) {
                     .File => {
-                        // TODO: Ignore .env and non-.pi files here?
-                        // TODO: If we shall support .env-files pr folder/suite, then we will perhaps need to keep track of "suites" internally as well?
-
                         var item = utils.initBoundedArray(u8, config.MAX_PATH_LEN);
                         try item.appendSlice(file.constSlice());
                         try item.appendSlice("/");

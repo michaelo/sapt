@@ -565,12 +565,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
 
     // Parse arguments / show help
     var parsed_args = argparse.parseArgs(args) catch |e| switch (e) {
-        error.ShowHelp => {
-            argparse.printHelp(true);
-            return ExecutionStats{};
-        },
-        error.ShowFormatHelp => {
-            argparse.printFormatHelp();
+        error.OkExit => {
             return ExecutionStats{};
         },
         else => {
