@@ -1,0 +1,25 @@
+{
+    "name": "sapt-pi",
+    "displayName": "pi",
+    "description": "Language support for .pi files used by the sapt-tool.",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.60.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [{
+            "id": "pi",
+            "aliases": ["sapt .pi", "pi"],
+            "extensions": [".pi"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "pi",
+            "scopeName": "source.pi",
+            "path": "./syntaxes/pi.tmLanguage.json"
+        }]
+    }
+}

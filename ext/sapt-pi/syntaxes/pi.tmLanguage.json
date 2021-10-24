@@ -1,0 +1,146 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "sapt.pi",
+	"patterns": [
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#input-section"
+		},
+		{
+			"include": "#output-section"
+		}
+	],
+	"variablesOrFunctions": {
+		"patterns": [
+			{
+				"include": "#variables"
+			},
+			{
+				"include": "#functions"
+			}
+		]
+	},
+	"repository": {
+		"variables": {
+			"begin": "{{",
+			"end": "}}",
+			"name": "variable.pi"
+		},
+		"comments": {
+			"begin": "^#",
+			"end": "\n",
+			"name": "comment.pi"
+		},
+		"input-section": {
+			"begin": "(?<!^>)",
+			"end": "(?=<)",
+			"beginCaptures": {
+				"0": {
+					"name": "keywords.input-section.start.pi"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "input-section.end.pi"
+				}
+			},
+			"name": "input-section-body",
+			"patterns": [
+				{
+					"include": "#variablesOrFunctions"
+				},
+				{
+					"include": "#comments"
+				},
+				{
+					"include": "#http-header"
+				},
+				{
+					"include": "#input-section-header"
+				}
+			]
+		},
+		"http-header": {
+			"match": "^([^\\s]+): (.+)\n",
+			"name": "http-header.pi",
+			"captures": {
+				"1": {
+					"name": "label.pi",
+					"patterns": [
+						{
+							"include": "#variablesOrFunctions"
+						}
+					]
+				},
+				"2": {
+					"name": "string.pi",
+					"patterns": [
+						{
+							"include": "#variablesOrFunctions"
+						}
+					]
+				}
+			},
+			"patterns": [
+				{
+					"include": "#variablesOrFunctions"
+				}
+			]
+		},
+		"functions": {
+			"match": "{{([^(]+)\\(([^(]+)\\)}}",
+			"captures": {
+				"1": {
+					"name": "function.pi"
+				},
+				"2": {
+					"name": "parameter.pi"
+				}
+			}
+		},
+		"input-section-header": {
+			"match": "^(>)\\s(POST|GET|PUT|DELETE)\\s(.+)$",
+			"captures": {
+				"1": {
+					"name": "label.pi"
+				},
+				"2": {
+					"name": "method.http.pi"
+				},
+				"3": {
+					"name": "string.url.pi"
+				}
+			},
+			"name": "input-section-header.pi"
+		},
+		"output-section": {
+			"begin": "^<",
+			"end": "$/Z",
+			"beginCaptures": {
+				"0": {
+					"name": "output-section.start"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "output-section.end"
+				}
+			},
+			"name": "output-section-body",
+			"patterns": [
+				{
+					"include": "#variablesOrFunctions"
+				},
+				{
+					"include": "#comments"
+				},
+				{
+					"include": "#output-extraction-expression"
+				}
+			]
+		}
+	},
+	"scopeName": "source.pi"
+}
