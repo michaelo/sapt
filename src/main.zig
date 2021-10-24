@@ -1,22 +1,14 @@
 /// Main file for application.
-/// TODO:
-/// * Clean up types wrt to BoundedArray-variants used for files, lists of files etc.
-///   * Anything string-related; we can probably assume u8 for any custom functions at least
-/// * Establish how to proper handle C-style strings wrt to curl-interop
-/// * 
+
+// std lib imports
 const std = @import("std");
 const fs = std.fs;
-
-// Outputters
-// const info = std.log.info;
-// const warn = std.log.warn;
-// const emerg = std.log.emerg;
-const debug = std.debug.print;
-
-pub const log_level: std.log.Level = .debug;
-
 const testing = std.testing;
 
+const debug = std.debug.print;
+pub const log_level: std.log.Level = .debug;
+
+// application-specific imports
 const argparse = @import("argparse.zig");
 const config = @import("config.zig");
 const httpclient = @import("httpclient.zig");
@@ -25,21 +17,15 @@ const kvstore = @import("kvstore.zig");
 const parser = @import("parser.zig");
 const pretty = @import("pretty.zig");
 const threadpool = @import("threadpool.zig");
+const types = @import("types.zig");
 const utils = @import("utils.zig");
 
 const Console = @import("console.zig").Console;
 
-const types = @import("types.zig");
 const HttpMethod = types.HttpMethod;
 const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
 const AppArguments = argparse.AppArguments;
-
-const CONFIG_MAX_PAYLOAD_SIZE = 1024 * 1024;
-const CONFIG_MAX_URL_LEN = 2048;
-const CONFIG_MAX_ENV_FILE_SIZE = 1024 * 1024;
-const CONFIG_MAX_TEST_FILE_SIZE = 1024 * 1024;
-const CONFIG_MAX_PLAYBOOK_FILE_SIZE = 1024 * 1024;
 
 // To be replacable, e.g. for tests
 pub var httpClientProcessEntry: fn (*Entry, httpclient.ProcessArgs, *EntryResult) anyerror!void = undefined;
@@ -83,9 +69,9 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
 pub const Entry = struct {
     name: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
     method: HttpMethod = undefined,
-    url: std.BoundedArray(u8, CONFIG_MAX_URL_LEN) = initBoundedArray(u8, CONFIG_MAX_URL_LEN),
+    url: std.BoundedArray(u8, config.MAX_URL_LEN) = initBoundedArray(u8, config.MAX_URL_LEN),
     headers: std.BoundedArray(HttpHeader, 32) = initBoundedArray(HttpHeader, 32),
-    payload: std.BoundedArray(u8, CONFIG_MAX_PAYLOAD_SIZE) = initBoundedArray(u8, CONFIG_MAX_PAYLOAD_SIZE),
+    payload: std.BoundedArray(u8, config.MAX_PAYLOAD_SIZE) = initBoundedArray(u8, config.MAX_PAYLOAD_SIZE),
     expected_http_code: u64 = 0, // 0 == don't care
     expected_response_substring: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
     extraction_entries: std.BoundedArray(ExtractionEntry, 32) = initBoundedArray(ExtractionEntry, 32),
@@ -319,7 +305,7 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
 }
 
 fn processPlaybookFile(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
-    var buf_playbook = initBoundedArray(u8, CONFIG_MAX_PLAYBOOK_FILE_SIZE); // Att: this must be kept as it is used to look up data from for the segments
+    var buf_playbook = initBoundedArray(u8, config.MAX_PLAYBOOK_FILE_SIZE); // Att: this must be kept as it is used to look up data from for the segments
 
     io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
         Console.red("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
@@ -336,10 +322,10 @@ fn processPlaybookFile(test_context: *TestContext, playbook_path: []const u8, ar
 }
 
 
-fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArray(u8, CONFIG_MAX_PLAYBOOK_FILE_SIZE), playbook_basedir: std.fs.Dir, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
+fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArray(u8, config.MAX_PLAYBOOK_FILE_SIZE), playbook_basedir: std.fs.Dir, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     // Load playbook
     var buf_scrap = initBoundedArray(u8,16*1024);
-    var buf_test = initBoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE);
+    var buf_test = initBoundedArray(u8, config.MAX_TEST_FILE_SIZE);
 
     var segments = initBoundedArray(parser.PlaybookSegment, 128);
     try segments.resize(parser.parsePlaybook(buf_playbook.constSlice(), segments.unusedCapacitySlice()));
@@ -431,18 +417,18 @@ fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArra
 }
 
 test "extracted variables shall be expanded in next test" {
-    var buf_test1 = try std.testing.allocator.create(std.BoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE));
+    var buf_test1 = try std.testing.allocator.create(std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE));
     defer std.testing.allocator.destroy(buf_test1);
-    buf_test1.* = try std.BoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE).fromSlice(
+    buf_test1.* = try std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE).fromSlice(
         \\> GET https://some.url/api/step1
         \\< 0
         \\MYVAR=token:"()"
         [0..]
     );
 
-    var buf_test2 = try std.testing.allocator.create(std.BoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE));
+    var buf_test2 = try std.testing.allocator.create(std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE));
     defer std.testing.allocator.destroy(buf_test2);
-    buf_test2.* = try std.BoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE).fromSlice(
+    buf_test2.* = try std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE).fromSlice(
         \\> GET https://some.url/api/step2
         \\--
         \\MYVAR={{MYVAR}}
@@ -485,7 +471,7 @@ test "extracted variables shall be expanded in next test" {
 
 // Regular path for tests passed as arguments
 fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
-    var buf_testfile = initBoundedArray(u8, CONFIG_MAX_TEST_FILE_SIZE);
+    var buf_testfile = initBoundedArray(u8, config.MAX_TEST_FILE_SIZE);
     var num_processed: u64 = 0;
     var num_failed: u64 = 0;
     const time_start = std.time.milliTimestamp();
@@ -498,7 +484,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
     // Get num of .pi-files in args.files
     var total_tests: u64 = 0;
     for(args.files.constSlice()) |file| {
-        if (std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) {
+        if (std.mem.endsWith(u8, file.constSlice(), config.FILE_EXT_TEST)) {
             total_tests += 1;
         }
     }
@@ -511,11 +497,11 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
         }
 
         // .env: load
-        if (std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_ENV)) {
+        if (std.mem.endsWith(u8, file.constSlice(), config.FILE_EXT_ENV)) {
             Console.grey("Loading .env: {s}\n", .{file.constSlice()});
             try folder_local_vars.addFromOther(try envFileToKvStore(fs.cwd(), file.constSlice()), .KeepFirst);
         }
-        if (!std.mem.endsWith(u8, file.constSlice(), config.CONFIG_FILE_EXT_TEST)) continue;
+        if (!std.mem.endsWith(u8, file.constSlice(), config.FILE_EXT_TEST)) continue;
 
         num_processed += 1;
 
@@ -628,7 +614,7 @@ pub fn main() !void {
 }
 
 pub fn envFileToKvStore(dir: fs.Dir, path: []const u8) !kvstore.KvStore {
-    var tmpbuf = initBoundedArray(u8, CONFIG_MAX_ENV_FILE_SIZE);
+    var tmpbuf = initBoundedArray(u8, config.MAX_ENV_FILE_SIZE);
 
     io.readFileRel(u8, tmpbuf.buffer.len, dir, path, &tmpbuf) catch {
         Console.red("ERROR: Could not read .env-file: {s}\n", .{path});

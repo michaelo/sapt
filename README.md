@@ -384,6 +384,7 @@ TODO, somewhat ordered:
   * zlib for Windows - license added to CREDITS
   * OpenSSL?
   * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
+* Look into staticly linking all deps - the absolute best would be a single, self-contained executable
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.

@@ -689,7 +689,7 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                 var sub_it = std.mem.split(u8, line[1..], "*");
                 var path = std.mem.trim(u8, sub_it.next().?, " "); // expected to be there, otherwise error
 
-                if (std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_TEST)) {
+                if (std.mem.endsWith(u8, path, config.FILE_EXT_TEST)) {
                     var meta_raw = sub_it.next(); // may be null
                     var repeats: u32 = 1;
                     if (meta_raw) |meta| {
@@ -709,7 +709,7 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                         },
                     };
                     seg_idx += 1;
-                } else if (std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_ENV)) {
+                } else if (std.mem.endsWith(u8, path, config.FILE_EXT_ENV)) {
                     result[seg_idx] = .{ .line_start = line_idx, .segment_type = .EnvInclude, .slice = path };
                     seg_idx += 1;
                 }
