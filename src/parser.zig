@@ -33,7 +33,10 @@ pub fn parseErrorArg(comptime text: []const u8, args: anytype, line_no: usize, c
     }
 }
 
-// TODO: Add parameter for line-offset since errors also must be correct for playbooks
+/// data: the data to parse - all expansions etc must have been done before this.
+/// result: pre-allocated struct to popuplate with parsed data
+/// line_idx_offset: Which line_idx in the source file the data originates from. Used to 
+///                  generate better parse errors.
 pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) errors!void {
     const ParseState = enum {
         Init,
@@ -60,7 +63,7 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
             _ = lit.next(); // skip <
             if (lit.next()) |http_code| {
                 _result.expected_http_code = std.fmt.parseInt(u64, http_code[0..], 10) catch return errors.ParseErrorOutputSection;
-                _result.expected_response_regex.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseErrorOutputSection;
+                _result.expected_response_substring.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseErrorOutputSection;
             } else {
                 return errors.ParseErrorOutputSection;
             }
@@ -93,8 +96,8 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
         }
 
         fn parseInputPayloadLine(line: []const u8, _result: *Entry) !void {
-            _result.payload.appendSlice(line) catch return errors.ParseErrorInputPayload;
-            _result.payload.append('\n') catch return errors.ParseErrorInputPayload;
+            _result.payload.appendSlice(line) catch return errors.ParseErrorInputPayload; // .Overflow
+            _result.payload.append('\n') catch return errors.ParseErrorInputPayload; // .Overflow
         }
     };
 
@@ -104,7 +107,7 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
     var it = std.mem.split(u8, data, io.getLineEnding(data));
     var line_idx: usize = line_idx_offset;
     while (it.next()) |line| : (line_idx += 1) {
-        // TODO: Refactor. State-names are confusing.
+        // TBD: Refactor? State-names may be confusing.
         switch (state) {
             ParseState.Init => {
                 if (ParserFunctions.isEmptyLineOrComment(line)) continue;
@@ -154,7 +157,6 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
                 } else {
                     // Add each line verbatim to payload-buffer
                     ParserFunctions.parseInputPayloadLine(line, result) catch |e| {
-                        // TODO: Ensure it's capacity issue
                         parseErrorArg("Could not parse payload section - it's too big. Max payload size is {d}B", .{result.payload.capacity()}, line_idx, 0, data, line);
                         return e;
                     };
@@ -191,7 +193,7 @@ test "parseContents" {
     try testing.expectEqual(entry.method, HttpMethod.Get);
     try testing.expectEqualStrings(entry.url.slice(), "https://api.warnme.no/api/status");
     try testing.expectEqual(entry.expected_http_code, 200);
-    try testing.expectEqualStrings(entry.expected_response_regex.slice(), "some regex here");
+    try testing.expectEqualStrings(entry.expected_response_substring.slice(), "some regex here");
 
     // Header-parsing:
     try testing.expectEqual(entry.headers.slice().len, 2);
@@ -223,7 +225,7 @@ test "parseContents extracts to variables" {
 }
 
 /// buffer must be big enough to store the expanded variables. TBD: Manage on heap?
-pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), variables_sets: []*kvstore.KvStore) !void {
+pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), maybe_variables_sets: ?[]*kvstore.KvStore) !void {
     if (buffer.slice().len == 0) return;
     const MAX_VARIABLES = 64;
 
@@ -237,12 +239,12 @@ pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(
     var pairs = try findAllVariables(buffer.buffer.len, MAX_VARIABLES, buffer);
     std.sort.sort(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
 
-    for (variables_sets) |variables| {
+    if(maybe_variables_sets) |variables_sets| for (variables_sets) |variables| {
         expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch(e) {
-            error.NoSuchVariableFound => {},
+            error.NoSuchVariableFound => {}, // This is OK, as we don't know which variable_set the variable to expand may be in 
             else => return e
         };
-    }
+    };
 
     try expandFunctions(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs);
 }
@@ -443,7 +445,7 @@ const global_functions = [_]FunctionEntry{
 };
 
 fn getFunction(name: []const u8) !FunctionEntryFuncPtr {
-    // TODO: Inefficient
+    // Att: Inefficient. If data set increases, improve (PERFORMANCE)
     for (global_functions) |*entry| {
         if (std.mem.eql(u8, entry.name, name)) {
             return entry.function;

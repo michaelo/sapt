@@ -28,7 +28,6 @@ pub const KvStore = struct {
     store: std.BoundedArray(KvStoreEntry, 32) = utils.initBoundedArray(KvStoreEntry, 32),
 
     pub fn add(self: *KvStore, key: []const u8, value: []const u8) !void {
-        // TODO: insert sorted, so we can binary search in get()
         if (try self.getIndexFor(key)) |i| {
             try self.store.insert(i, try KvStoreEntry.create(key, value));
         } else {
@@ -59,7 +58,7 @@ pub const KvStore = struct {
     }
 
     pub fn get(self: *KvStore, key: []const u8) ?[]const u8 {
-        // TODO: once we've inserted sorted we can binary search
+        // TODO: binary search
         for (self.store.slice()) |entry| {
             if (std.mem.eql(u8, entry.key.constSlice(), key)) {
                 return entry.value.constSlice();
@@ -83,7 +82,7 @@ pub const KvStore = struct {
         while (line_it.next()) |line| {
             if (line.len == 0) continue;
             if (line[0] == '#') continue;
-            
+
             if (std.mem.indexOf(u8, line, "=")) |eqpos| {
                 try store.add(line[0..eqpos], line[eqpos + 1 ..]);
             } else {
@@ -93,30 +92,32 @@ pub const KvStore = struct {
         return store;
     }
 
-    // TODO: Add collision strategy here as well.
-    pub fn addFromBuffer(self: *KvStore, buf: []const u8) !void {
+    pub fn addFromBuffer(self: *KvStore, buf: []const u8, collision_handling: CollisionStrategy) !void {
         var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
         while (line_it.next()) |line| {
             if (line.len == 0) continue;
             if (line[0] == '#') continue;
 
             if (std.mem.indexOf(u8, line, "=")) |eqpos| {
-                try self.add(line[0..eqpos], line[eqpos + 1 ..]);
+                self.add(line[0..eqpos], line[eqpos + 1 ..]) catch |e| switch (e) {
+                    error.KeyAlreadyUsed => switch (collision_handling) {
+                        .KeepFirst => {},
+                        .Fail => return e,
+                    },
+                    else => return e,
+                };
             } else {
                 return error.InvalidEntry;
             }
         }
     }
 
-    pub const CollisionStrategy = enum {
-        KeepFirst,
-        Fail
-    };
+    pub const CollisionStrategy = enum { KeepFirst, Fail };
 
-    pub fn addFromOther(self: *KvStore, other: KvStore, collision_handling : CollisionStrategy) !void {
-        for(other.store.constSlice()) |entry| {
-            self.add(entry.key.constSlice(), entry.value.constSlice()) catch |e| switch(e) {
-                error.KeyAlreadyUsed => switch(collision_handling) {
+    pub fn addFromOther(self: *KvStore, other: KvStore, collision_handling: CollisionStrategy) !void {
+        for (other.store.constSlice()) |entry| {
+            self.add(entry.key.constSlice(), entry.value.constSlice()) catch |e| switch (e) {
+                error.KeyAlreadyUsed => switch (collision_handling) {
                     .KeepFirst => {},
                     .Fail => return e,
                 },

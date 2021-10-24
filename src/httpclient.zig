@@ -3,6 +3,8 @@ const main = @import("main.zig");
 const types = @import("types.zig");
 const utils = @import("utils.zig");
 
+var is_inited: bool = false;
+
 const cURL = @cImport({
     @cInclude("curl/curl.h");
 });
@@ -15,19 +17,22 @@ fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_dat
 }
 
 pub fn init() !void {
+    if(is_inited) return error.AlreadyInit;
     if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
         return error.CURLGlobalInitFailed;
+
+    is_inited = false;
 }
 
 pub fn deinit() void {
     cURL.curl_global_cleanup();
+    is_inited = false;
 }
 
 pub const ProcessArgs = struct {
     ssl_insecure: bool = false,
     verbose: bool = false,
 };
-
 
 /// Primary worker function performing the request and handling the response
 pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryResult) !void {
@@ -102,11 +107,12 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
     if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_buffer) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
 
-    // TODO: Timer start
+    // TODO: This is the critical part to time
     // Perform
+    // var time_start = std.time.milliTimestamp();
     if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
         return error.FailedToPerformRequest;
-    // TODO: Timer end
+    // std.debug.print("inner time: {d}\n", .{std.time.milliTimestamp() - time_start});
 
     ////////////////////////
     // Handle results
@@ -122,7 +128,6 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
         return error.CouldNewGetResponseContentType;
 
     // Get Content-Type
-    // TODO: Check of pointer being NULL in case no Content-Type specified?
     if (content_type_ptr != null) {
         var content_type_slice = try std.fmt.bufPrint(&result.response_content_type.buffer, "{s}", .{content_type_ptr});
         try result.response_content_type.resize(content_type_slice.len);
@@ -201,6 +206,6 @@ pub fn httpCodeToString(code: u64) []const u8 {
         508 => "Loop Detected",
         510 => "Not Extended",
         511 => "Network Authentication Required",
-        else => "", // TBD: fail, return empty, or e.g. "UNKNOWN HTTP CODE"?
+        else => "",
     };
 }

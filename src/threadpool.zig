@@ -24,7 +24,6 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
         work_mutex: Mutex = Mutex{},
 
         state: ThreadPoolState = ThreadPoolState.NotStarted,
-        // TBD: This can be an heap-allocated list to scale to "arbitrary" amounts 
         work: [TaskCapacity]PayloadType = undefined,
         next_work_item_idx: usize = 0,
         next_free_item_idx: usize = 0,
@@ -35,10 +34,6 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
 
         /// Required to be populated from single thread as of now, and must be done before start.
         pub fn addWork(self: *Self, work: PayloadType) !void {
-            // TODO: Lock + make circular buffer?
-            // const held = self.work_mutex.acquire();
-            // defer held.release();
-
             if(self.isCapacity()) {
                 self.work[self.next_free_item_idx] = work;
                 // next_work_item_idx = next_free_item_idx;
@@ -50,10 +45,6 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
 
         /// Not thread safe, must lock outside
         fn takeWork(self: *Self) !PayloadType {
-            // TODO: Lock + make circular buffer?
-            // const held = self.work_mutex.acquire();
-            // defer held.release();
-
             if(self.isWork()) {
                 var item_to_return = self.next_work_item_idx;
                 self.next_work_item_idx += 1;

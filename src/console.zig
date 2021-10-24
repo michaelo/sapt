@@ -1,5 +1,6 @@
 /// Basic writer supporting console-escape-codes for supported platforms
 const std = @import("std");
+pub const Color = std.debug.TTY.Color;
 
 pub const Console = struct {
 
@@ -8,6 +9,19 @@ pub const Console = struct {
         var ttyconf = std.debug.detectTTYConfig();
 
         ttyconf.setColor(stdout, .Reset);
+    }
+
+    /// Convenience-function to print only if condition is met
+    pub fn printIf(condition: bool, maybo_color: ?Color, comptime fmt:[]const u8, args: anytype) void {
+        if(!condition) return;
+        var color = maybo_color orelse .Reset;
+
+        const stdout = std.io.getStdOut().writer();
+        var ttyconf = std.debug.detectTTYConfig();
+
+        ttyconf.setColor(stdout, color);
+        stdout.print(fmt, args) catch {};
+        ttyconf.setColor(stdout, .Reset);        
     }
 
     pub fn plain(comptime fmt:[]const u8, args: anytype) void {
