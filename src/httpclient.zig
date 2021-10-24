@@ -54,14 +54,14 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
         return error.CouldNotSetRequestMethod;
 
     // Set URL
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, utils.boundedArrayAsCstr(entry.url.buffer.len, &entry.url)) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, try utils.boundedArrayAsCstr(entry.url.buffer.len, &entry.url)) != cURL.CURLE_OK)
         return error.CouldNotSetURL;
 
     // Set Payload (if given)
     if (entry.method == .Post or entry.method == .Put or entry.payload.slice().len > 0) {
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDSIZE, entry.payload.slice().len) != cURL.CURLE_OK)
             return error.CouldNotSetPostDataSize;
-        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, utils.boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload)) != cURL.CURLE_OK)
+        if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, try utils.boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload)) != cURL.CURLE_OK)
             return error.CouldNotSetPostData;
     }
 
@@ -83,11 +83,11 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
     var list: ?*cURL.curl_slist = null;
     defer cURL.curl_slist_free_all(list);
 
-    var header_buf = utils.initBoundedArray(u8, types.HttpHeader.MAX_VALUE_LEN);
+    var header_scrap_buf = utils.initBoundedArray(u8, types.HttpHeader.MAX_VALUE_LEN);
     for (entry.headers.slice()) |*header| {
-        try header_buf.resize(0);
-        try header.render(header_buf.buffer.len, &header_buf);
-        list = cURL.curl_slist_append(list, utils.boundedArrayAsCstr(header_buf.buffer.len, &header_buf));
+        try header_scrap_buf.resize(0);
+        try header.render(header_scrap_buf.buffer.len, &header_scrap_buf);
+        list = cURL.curl_slist_append(list, try utils.boundedArrayAsCstr(header_scrap_buf.buffer.len, &header_scrap_buf));
     }
 
     if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_HTTPHEADER, list) != cURL.CURLE_OK)
