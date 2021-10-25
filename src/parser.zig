@@ -534,8 +534,8 @@ fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, 
                 };
                 pair.resolved = true;
             } else {
-                // debug("Could not find variable: '{s}'\n", .{key});
-                return error.NoSuchVariableFound;
+                debug("WARNING: Could not resolve variable: '{s}'\n", .{key});
+                // result = error.NoSuchVariableFound;
             }
         }
 

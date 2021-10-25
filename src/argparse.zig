@@ -161,16 +161,7 @@ test "argHasValue" {
 
 pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArguments {
     var result: AppArguments = .{};
-    //    --help, -h               Show this help
-    //    --help-format            Show overview of test- and playbook-formats
-    //    --initial-vars=file,-i=file   The file is processed as a key=value-list of variables made available for all tests performed
-    //    --insecure               Don't verify SSL certificates
-    //    --multithread,-m         Will enable multithreading for repeated tests (in playbook)
-    //    --playbook=file,-b=file  Will load and process specified playbook
-    //    --pretty,-p              Enable prettyprinting the response data for supported Content-Types.
-    //    --show-response,-d       Output thow the response data from each request
-    //    --verbose, -v            Normal verbosity, will show more details re processing steps and response data
-    //    --verbose-curl           Sets VERBOSE for libcurl
+
     if(args.len < 1) {
         return error.NoArguments;
     }
