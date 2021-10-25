@@ -379,29 +379,27 @@ This sections aims to provide a set of example use cases for which sapt can be u
 TODO, somewhat ordered:
 ------------
 * Determine if current solution where variables can't be overwritten is a good idea or not.
-* Credits: Determine all deps we need to ship.
-  * libcurl for all platforms - license added to CREDITS
-  * zlib for Windows - license added to CREDITS
-  * OpenSSL?
-  * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
-* Look into staticly linking all deps - the absolute best would be a single, self-contained executable
+* Libs/deps handling:
+    * Credits: Determine all deps we need to ship.
+        * libcurl for all platforms - license added to CREDITS
+        * zlib for Windows - license added to CREDITS
+        * OpenSSL?
+    * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
+    * Look into staticly linking all deps - the absolute best would be a single, self-contained executable
+    * Get proper version-control of which dynamic libraries we depend on/provide.
+* Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows.
-* Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Fail if test has variable that's not substituted? Or at least warn.
-* Get proper version-control of which dynamic libraries we depend on/provide.
+* Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Code quality - especially in main.zig - is quite crap at this point.
-* Support providing variables as parameters? E.g. sapt myfile.pi -DMYVAR=value -DMYVAR2=value2
-* Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
-* Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
-* TBD: Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
-* Implement support to do step-by-step tests by e.g. requiring user to press enter between each test?
+* Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.
 * Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
-* Test/verify safety of string lengths: parsing + how we add 0 for c-interop
+* Test/verify safety of string lengths: parsing
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
 * TBD: Shall we support "repeats" in test-files as well? Not only playbooks.
-* Actively limit the set of protocols we allow. We currently just forward the URL however it is to CURL
+* Actively limit the set of protocols we allow. We currently just forward the URL however it is to CURL. If we staticly link, build a custom variant with only the feature set we need.
 * Support HTTP follow? Not now - we want explicit tests.
 * Finish basic syntax highligh ruleset for the test-files
 * Dev: Test feature flags based on comptime-parsing a feature-file
@@ -414,6 +412,7 @@ Feature-exploration AKA Maybe-TODO:
 * Performant, light-weight GUI (optional)? Plotting performance for stress tests and such.
 * Support response-time as test-prereq? Perhaps in playlist (low pri)
 * TBD: Possibility to set "verbose" only for a specific test? Using e.g. the test-sequence-number?
+* TBD: Actually parse response data - which also can allow us to more precisely extract data semantically
 
 
 Thanks / attributions:

@@ -5,6 +5,7 @@ const fs = std.fs;
 const main = @import("main.zig");
 const utils = @import("utils.zig");
 const config = @import("config.zig");
+const kvstore = @import("kvstore.zig");
 
 pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
 
@@ -21,6 +22,8 @@ pub const AppArguments = struct {
     show_pretty_response_data: bool = false,
     //-m allows for concurrent requests for repeated tests
     multithreaded: bool = false,
+    //-e, --early-quit - abort execution upon first non-successful test
+    early_quit: bool = false,
     //-i=<file>
     input_vars_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = utils.initBoundedArray(u8, config.MAX_PATH_LEN),
     //-b=<file>
@@ -56,6 +59,7 @@ pub fn printHelp(full: bool) void {
         \\  -v, --verbose       Verbose output
         \\      --verbose-curl  Verbose output from libcurl
         \\  -d, --show-response Show response data
+        \\  -e, --early-quit    Abort upon first non-successful test
         \\  -p, --pretty        Try to format response data based on Content-Type.
         \\                      Naive support for JSON, XML and HTML
         \\  -m, --multithread   Activates multithreading - relevant for repeated tests
@@ -67,6 +71,8 @@ pub fn printHelp(full: bool) void {
         \\  -b=file, --playbook=file
         \\                      Read tests to perform from playbook-file -- if set,
         \\                      ignores other tests passed as arguments
+        \\  -DKEY=VALUE         Define variable, similar to .env-files. Can be set
+        \\                      multiple times
         \\
     , .{config.APP_NAME});
 }
@@ -153,7 +159,7 @@ test "argHasValue" {
     try testing.expect(argHasValue("-b=mybook", "--playbook", "-b") != null);
 }
 
-pub fn parseArgs(args: [][]const u8) !AppArguments {
+pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArguments {
     var result: AppArguments = .{};
     //    --help, -h               Show this help
     //    --help-format            Show overview of test- and playbook-formats
@@ -188,6 +194,11 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
 
         if(argIs(arg, "--multithread", "-m")) {
             result.multithreaded = true;
+            continue;
+        }
+
+        if(argIs(arg, "--early-quit", "-e")) {
+            result.early_quit = true;
             continue;
         }
         
@@ -227,6 +238,12 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
             continue;
         }
 
+        if(maybe_variables) |variables| if(std.mem.startsWith(u8, arg, "-D")) {
+            // Found variable-entry
+            try variables.addFromBuffer(arg[2..], .KeepFirst);
+            continue;
+        };
+
         // Assume ordinary files
         result.files.append(FilePathEntry.fromSlice(arg) catch {
             return error.TooLongFilename;
@@ -241,23 +258,23 @@ pub fn parseArgs(args: [][]const u8) !AppArguments {
 test "parseArgs verbosity" {
     {
         var myargs = [_][]const u8{"dummyarg"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(!parsed_args.verbose);
         try testing.expect(!parsed_args.verbose_curl);
     }
     {
         var myargs = [_][]const u8{"-v"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.verbose);
     }
     {
         var myargs = [_][]const u8{"--verbose"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.verbose);
     }
     {
         var myargs = [_][]const u8{"--verbose-curl"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.verbose_curl);
     }
 }
@@ -265,17 +282,17 @@ test "parseArgs verbosity" {
 test "parseArgs multithread" {
     {
         var myargs = [_][]const u8{"dummyarg"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(!parsed_args.multithreaded);
     }
     {
         var myargs = [_][]const u8{"-m"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.multithreaded);
     }
     {
         var myargs = [_][]const u8{"--multithread"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.multithreaded);
     }
 }
@@ -283,18 +300,18 @@ test "parseArgs multithread" {
 test "parseArgs playbook" {
     {
         var myargs = [_][]const u8{"dummyarg"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.playbook_file.slice().len == 0);
     }
     {
         var myargs = [_][]const u8{"-b=myplaybook"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
     }
 
     {
         var myargs = [_][]const u8{"--playbook=myplaybook"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expectEqualStrings("myplaybook", parsed_args.playbook_file.slice());
     }
 }
@@ -303,18 +320,18 @@ test "parseArgs playbook" {
 test "parseArgs input vars" {
     {
         var myargs = [_][]const u8{"dummyarg"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.input_vars_file.slice().len == 0);
     }
     {
         var myargs = [_][]const u8{"-i=myvars.env"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expectEqualStrings("myvars.env", parsed_args.input_vars_file.slice());
     }
 
     {
         var myargs = [_][]const u8{"--initial-vars=myvars.env"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expectEqualStrings("myvars.env", parsed_args.input_vars_file.slice());
     }
 }
@@ -322,17 +339,17 @@ test "parseArgs input vars" {
 test "parseArgs show response" {
     {
         var myargs = [_][]const u8{"dummyarg"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(!parsed_args.show_response_data);
     }
     {
         var myargs = [_][]const u8{"-d"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.show_response_data);
     }
     {
         var myargs = [_][]const u8{"--show-response"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.show_response_data);
     }
 }
@@ -340,41 +357,69 @@ test "parseArgs show response" {
 test "parseArgs pretty" {
     {
         var myargs = [_][]const u8{"dummyarg"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(!parsed_args.show_pretty_response_data);
     }
     {
         var myargs = [_][]const u8{"-p"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.show_pretty_response_data);
     }
     {
         var myargs = [_][]const u8{"--pretty"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.show_pretty_response_data);
+    }
+}
+
+
+test "parseArgs early-quit" {
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expect(!parsed_args.early_quit);
+    }
+    {
+        var myargs = [_][]const u8{"-e"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expect(parsed_args.early_quit);
+    }
+    {
+        var myargs = [_][]const u8{"--early-quit"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expect(parsed_args.early_quit);
     }
 }
 
 test "parseArgs showHelp" {
     {
         var myargs = [_][]const u8{"-h"};
-        try testing.expectError(error.OkExit, parseArgs(myargs[0..]));
+        try testing.expectError(error.OkExit, parseArgs(myargs[0..], null));
 
     }
     {
         var myargs = [_][]const u8{"--help"};
-        try testing.expectError(error.OkExit, parseArgs(myargs[0..]));
+        try testing.expectError(error.OkExit, parseArgs(myargs[0..], null));
     }
 }
 
 test "parseArgs files" {
     {
         var myargs = [_][]const u8{"somefile"};
-        var parsed_args = try parseArgs(myargs[0..]);
+        var parsed_args = try parseArgs(myargs[0..], null);
         try testing.expect(parsed_args.files.slice().len == 1);
         try testing.expectEqualStrings("somefile", parsed_args.files.get(0).slice());
     }
+}
 
+test "parseArgs -DKEY=VALUE" {
+    {
+        var myargs = [_][]const u8{"-DKEY=VALUE"};
+        var variables = kvstore.KvStore{};
+        _ = try parseArgs(myargs[0..], &variables);
+        try testing.expect(variables.slice().len == 1);
+        try testing.expectEqualStrings("VALUE", variables.get("KEY").?);
+    }
 }
 
 pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray(FilePathEntry, max_files)) !void {

@@ -380,6 +380,11 @@ fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArra
                     // OK
                 } else |_| {
                     num_failed += 1;
+
+                    if(args.early_quit) {
+                        Console.red("Early-quit is active, so aborting further tests\n", .{});
+                        break;
+                    }
                 }
             },
             .EnvInclude => {
@@ -407,7 +412,7 @@ fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArra
         \\------------------
         \\FINISHED - total time: {d}s
         \\
-    , .{ num_processed - num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
+    , .{ num_processed - num_failed, total_num_tests, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
 
     return ExecutionStats{
         .num_tests = num_processed,
@@ -482,10 +487,10 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
     var variables_sets = [_]*kvstore.KvStore{&folder_local_vars, input_vars, extracted_vars};
 
     // Get num of .pi-files in args.files
-    var total_tests: u64 = 0;
+    var total_num_tests: u64 = 0;
     for(args.files.constSlice()) |file| {
         if (std.mem.endsWith(u8, file.constSlice(), config.FILE_EXT_TEST)) {
-            total_tests += 1;
+            total_num_tests += 1;
         }
     }
 
@@ -517,10 +522,15 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
         // Expand all variables
         parser.expandVariablesAndFunctions(buf_testfile.buffer.len, &buf_testfile,  variables_sets[0..]) catch {};
 
-        if (processAndEvaluateEntryFromBuf(test_context, num_processed, total_tests, file.constSlice(), buf_testfile.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
+        if (processAndEvaluateEntryFromBuf(test_context, num_processed, total_num_tests, file.constSlice(), buf_testfile.constSlice(), args.*, input_vars, extracted_vars, 1, 0)) {
             // OK
         } else |_| {
             num_failed += 1;
+
+            if(args.early_quit) {
+                Console.red("Early-quit is active, so aborting further tests\n", .{});
+                break;
+            }
         }
     }
     Console.plain(
@@ -529,7 +539,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
         \\------------------
         \\FINISHED - total time: {d}s
         \\
-    , .{ num_processed - num_failed, num_processed, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
+    , .{ num_processed - num_failed, total_num_tests, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
 
     return ExecutionStats{
         .num_tests = num_processed,
@@ -545,8 +555,10 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     // Scrap-buffer to use throughout tests
     var test_context = try allocator.create(TestContext);
 
+    // Shared variable-buffer between .env-files and -D-arguments
+    var input_vars = kvstore.KvStore{};
     // Parse arguments / show help
-    var parsed_args = argparse.parseArgs(args) catch |e| switch (e) {
+    var parsed_args = argparse.parseArgs(args, &input_vars) catch |e| switch (e) {
         error.OkExit => {
             return ExecutionStats{};
         },
@@ -564,7 +576,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
         fatal("Could not process input file arguments: {s}\n", .{e});
     };
 
-    var input_vars = kvstore.KvStore{};
+    
     if (parsed_args.input_vars_file.constSlice().len > 0) {
         Console.printIf(parsed_args.verbose, null, "Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
         input_vars = try envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
