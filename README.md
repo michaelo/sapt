@@ -394,6 +394,7 @@ TODO, somewhat ordered:
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Code quality - especially in main.zig - is quite crap at this point.
 * Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.
+* Store responses? E.g. 'sapt mysuite/ --store-responses=./out/' creates ./out/mysuite/01-test1.pi.out etc
 * Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
 * Test/verify safety of string lengths: parsing
