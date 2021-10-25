@@ -548,12 +548,14 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
     };
 }
 
-pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!ExecutionStats {
+/// Main functional starting point
+pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!ExecutionStats {
     try httpclient.init();
     defer httpclient.deinit();
 
     // Scrap-buffer to use throughout tests
     var test_context = try allocator.create(TestContext);
+    defer allocator.destroy(test_context);
 
     // Shared variable-buffer between .env-files and -D-arguments
     var input_vars = kvstore.KvStore{};
@@ -596,6 +598,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]u8) anyerror!Execution
     return stats;
 }
 
+/// Main CLI entry point. Mainly responsible for wrapping mainInner()
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 
