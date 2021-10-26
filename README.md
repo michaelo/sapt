@@ -391,6 +391,7 @@ TODO, somewhat ordered:
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows.
 * Fail if test has variable that's not substituted? Or at least warn.
+* Append current git hash (short) for debug-builds. Need to figure out how to detect this at compile-time and inject it properly.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Code quality - especially in main.zig - is quite crap at this point.
 * Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.
