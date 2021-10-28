@@ -224,6 +224,13 @@ test "parseContents extracts to variables" {
     try testing.expectEqualStrings("regexwhichextractsvalue", entry.extraction_entries.get(0).expression.slice());
 }
 
+pub fn dumpUnresolvedBracketPairsForBuffer(buf: []const u8, brackets: []const BracketPair) void {
+    for (brackets) |pair, i| {
+        if (pair.resolved) continue;
+        debug("{d}: [{d}-{d}, {d}]: {s}\n", .{i, pair.start, pair.end, pair.depth, buf[pair.start..pair.end+1]});
+    }
+}
+
 /// buffer must be big enough to store the expanded variables. TBD: Manage on heap?
 pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), maybe_variables_sets: ?[]*kvstore.KvStore) !void {
     if (buffer.slice().len == 0) return;
@@ -240,6 +247,7 @@ pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(
     std.sort.sort(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
 
     if(maybe_variables_sets) |variables_sets| for (variables_sets) |variables| {
+        // dumpUnresolvedBracketPairsForBuffer(buffer.constSlice(), pairs.constSlice()); // DEBUG
         expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch(e) {
             //error.NoSuchVariableFound => {}, // This is OK, as we don't know which variable_set the variable to expand may be in 
             else => return e
@@ -481,6 +489,7 @@ fn expandFunctions(comptime BufferSize: usize, comptime MaxNumVariables: usize, 
         if(pair.resolved) continue;
         var pair_len = pair.end - pair.start + 1;
         var key = buffer.slice()[pair.start + 2 .. pair.end - 1];
+        // debug("Checking for function by key: {s}\n", .{key});
 
         // check if key is a function, otherwise ignore
         if (std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null) {
@@ -497,11 +506,11 @@ fn expandFunctions(comptime BufferSize: usize, comptime MaxNumVariables: usize, 
             };
             pair.resolved = true;
             end_delta = @intCast(i32, func_buf.slice().len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
-        }
 
-        for (pairs.slice()[i + 1 ..]) |*pair2| {
-            if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
-            if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try addUnsignedSigned(u64, i64, pair2.end, end_delta);
+            for (pairs.slice()[i + 1 ..]) |*pair2| {
+                if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
+                if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try addUnsignedSigned(u64, i64, pair2.end, end_delta);
+            }
         }
     }
 }
@@ -519,10 +528,11 @@ fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, 
     // * loop through all remaining pairs and any .start or .end that's > prev.end + end_delta with x + end_delta
 
     var end_delta: i64 = 0;
-    for (pairs.slice()) |*pair, i| {
-        if(pair.resolved) continue;
+    for (pairs.slice()) |*pair| {
+        if (pair.resolved) continue;
         var pair_len = pair.end - pair.start + 1;
         var key = buffer.slice()[pair.start + 2 .. pair.end - 1];
+        // debug("Checking for variable by key: {s}\n", .{key});
 
         // check if key is a variable (not function)
         if (!(std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null)) {
@@ -533,15 +543,18 @@ fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, 
                     return errors.BufferTooSmall;
                 };
                 pair.resolved = true;
+
+                // for (pairs.slice()[i + 1 ..]) |*pair2| {
+                for (pairs.slice()[0..]) |*pair2| {
+                    if (pair2.resolved) continue;// Since we no longer go exclusively by depth (we run this function multiple times with different sets), we have to check from start and filter out resolved instead
+                    if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
+                    if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try addUnsignedSigned(u64, i64, pair2.end, end_delta);
+                }
             } else {
-                debug("WARNING: Could not resolve variable: '{s}'\n", .{key});
+                // TODO: Make debug, and verbose-dependent?
+                // debug("WARNING: Could not resolve variable: '{s}'\n", .{key});
                 // result = error.NoSuchVariableFound;
             }
-        }
-
-        for (pairs.slice()[i + 1 ..]) |*pair2| {
-            if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
-            if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try addUnsignedSigned(u64, i64, pair2.end, end_delta);
         }
     }
 }
@@ -574,6 +587,40 @@ test "bracketparser" {
 
     try expandFunctions(str.buffer.len, MAX_VARIABLES, &str, &pairs);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{myfunc") == null);
+}
+
+// TODO: Add more stress-tests for advanced variable/function-substitution
+
+test "substitution advanced tests" {
+    var str = try std.BoundedArray(u8, 1024).fromSlice(
+        \\{{s1_var}}
+        \\{{s1_var2}}
+        \\{{myfunc({{s3_var}}:{{s2_var}})}}
+        \\{{s2_var}}
+        \\{{s3_var}}
+    );
+
+    var str_expected = 
+    \\s1varlongervaluehere
+    \\
+    \\s3varlongervaluehere:
+    \\
+    \\s3varlongervaluehere
+    ;
+    var s1 = kvstore.KvStore{};
+    try s1.add("s1_var", "s1varlongervaluehere");
+    try s1.add("s1_var2", "");
+    var s2 = kvstore.KvStore{};
+    try s2.add("s2_var", "");
+
+    var s3 = kvstore.KvStore{};
+    try s3.add("s3_var", "s3varlongervaluehere");
+
+    var sets = [_]*kvstore.KvStore{&s1, &s2, &s3};
+
+    try expandVariablesAndFunctions(str.buffer.len, &str, sets[0..]);
+
+    try testing.expectEqualStrings(str_expected, str.slice());
 }
 
 test "parseContents ignores comments" {

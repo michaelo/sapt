@@ -378,6 +378,9 @@ This sections aims to provide a set of example use cases for which sapt can be u
 
 TODO, somewhat ordered:
 ------------
+*Att! The points here are not changes that we strictly commit to, but an organic list of things to consider. Higher up = more likely*
+
+* Separate automagic handling between .env-file explicitly and implicitly passed (through folder)? Explicit should perhaps ignore folder-rules? 
 * Determine if current solution where variables can't be overwritten is a good idea or not.
 * Libs/deps handling:
     * Credits: Determine all deps we need to ship.
@@ -394,7 +397,16 @@ TODO, somewhat ordered:
 * Append current git hash (short) for debug-builds. Need to figure out how to detect this at compile-time and inject it properly.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Code quality - especially in main.zig - is quite crap at this point.
-* Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.
+* More advanced sequence options:
+    * Specify setup/teardown-tests to be run before/after test/suite/playbook?
+        * --suite-setup, --suite-teardown, --step-setup, --step-teardown?
+        * What about playbooks?
+    * Specify option to only re-run specific steps of a sequence? --steps=1,3,5-7.
+* Support providing variables as parameters? E.g. sapt myfile.pi -DMYVAR=value -DMYVAR2=value2
+* Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
+* Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
+* TBD: Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
+* Implement support to do step-by-step tests by e.g. requiring user to press enter between each test?
 * Store responses? E.g. 'sapt mysuite/ --store-responses=./out/' creates ./out/mysuite/01-test1.pi.out etc
 * Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.

@@ -307,22 +307,19 @@ fn getNumOfSegmentType(segments: []const parser.PlaybookSegment, segment_type: p
 fn processPlaybookFile(test_context: *TestContext, playbook_path: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     var buf_playbook = initBoundedArray(u8, config.MAX_PLAYBOOK_FILE_SIZE); // Att: this must be kept as it is used to look up data from for the segments
 
-    io.readFile(u8, buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
+    io.readFile(buf_playbook.buffer.len, playbook_path, &buf_playbook) catch {
         Console.red("ERROR: Could not read playbook file: {s}\n", .{playbook_path});
         return error.CouldNotReadFile;
     };
 
     // Playbooks shall resolve file-includes relative to self
-    var original_cwd = fs.cwd();
-    // If playbook_parent_path is empty (if file is in cwd), pass in "." as dir-reference. Any OS'es this doesn't work for?
     var playbook_parent_path = io.getParent(playbook_path);
-    var playbook_basedir = try original_cwd.openDir(if(playbook_parent_path.len > 0) playbook_parent_path else ".", .{});
-
-    return processPlaybookBuf(test_context, &buf_playbook, playbook_basedir, args, input_vars, extracted_vars);
+    
+    return processPlaybookBuf(test_context, &buf_playbook, playbook_parent_path, args, input_vars, extracted_vars);
 }
 
 
-fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArray(u8, config.MAX_PLAYBOOK_FILE_SIZE), playbook_basedir: std.fs.Dir, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
+fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArray(u8, config.MAX_PLAYBOOK_FILE_SIZE), playbook_basedir: []const u8, args: AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
     // Load playbook
     var buf_scrap = initBoundedArray(u8,16*1024);
     var buf_test = initBoundedArray(u8, config.MAX_TEST_FILE_SIZE);
@@ -360,9 +357,10 @@ fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArra
                     name_slice = try std.fmt.bufPrint(&name_buf, "{s}", .{utils.constSliceUpTo(u8, segment.slice, 0, name_buf.len)});
                     repeats = segment.meta.TestInclude.repeats;
                     Console.printIf(args.verbose, null, "Processing: {s}\n", .{segment.slice});
+                    var full_path = try io.getRealPath(playbook_basedir, segment.slice, buf_scrap.unusedCapacitySlice());
                     // Load from file and parse
-                    io.readFileRel(u8, buf_test.buffer.len, playbook_basedir, segment.slice, &buf_test) catch {
-                        parser.parseErrorArg("Could not read file", .{}, segment.line_start, 0, buf_test.constSlice(), segment.slice);
+                    io.readFile(buf_test.buffer.len, full_path, &buf_test) catch |e| {
+                        parser.parseErrorArg("Could not read file ({s})", .{e}, segment.line_start, 0, buf_test.constSlice(), segment.slice);
                         num_failed += 1;
                         continue;
                     };
@@ -382,7 +380,7 @@ fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArra
                     num_failed += 1;
 
                     if(args.early_quit) {
-                        Console.red("Early-quit is active, so aborting further tests\n", .{});
+                        Console.red("Early-quit is active, so aborting further steps\n", .{});
                         break;
                     }
                 }
@@ -390,7 +388,9 @@ fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArra
             .EnvInclude => {
                 // Load from file and parse
                 Console.printIf(args.verbose, null, "Loading env-file: '{s}'\n", .{segment.slice});
-                try input_vars.addFromOther((try envFileToKvStore(playbook_basedir, segment.slice)), .Fail);
+                var full_path = try io.getRealPath(playbook_basedir, segment.slice, buf_scrap.unusedCapacitySlice());
+
+                try input_vars.addFromOther((try envFileToKvStore(fs.cwd(), full_path)), .Fail);
             },
             .EnvRaw => {
                 // Parse key=value directly
@@ -513,7 +513,7 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
         //////////////////
         // Process
         //////////////////
-        io.readFile(u8, buf_testfile.buffer.len, file.constSlice(), &buf_testfile) catch {
+        io.readFile(buf_testfile.buffer.len, file.constSlice(), &buf_testfile) catch {
             Console.red("ERROR: Could not read file: {s}\n", .{file.constSlice()});
             num_failed += 1;
             continue;
@@ -631,7 +631,7 @@ pub fn main() !void {
 pub fn envFileToKvStore(dir: fs.Dir, path: []const u8) !kvstore.KvStore {
     var tmpbuf = initBoundedArray(u8, config.MAX_ENV_FILE_SIZE);
 
-    io.readFileRel(u8, tmpbuf.buffer.len, dir, path, &tmpbuf) catch {
+    io.readFileRel(tmpbuf.buffer.len, dir, path, &tmpbuf) catch {
         Console.red("ERROR: Could not read .env-file: {s}\n", .{path});
         return error.CouldNotReadFile;
     };
