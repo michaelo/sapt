@@ -378,18 +378,26 @@ This sections aims to provide a set of example use cases for which sapt can be u
 
 TODO, somewhat ordered:
 ------------
+*Att! The points here are not changes that we strictly commit to, but an organic list of things to consider. Higher up = more likely*
+
+* Separate automagic handling between .env-file explicitly and implicitly passed (through folder)? Explicit should perhaps ignore folder-rules? 
 * Determine if current solution where variables can't be overwritten is a good idea or not.
 * Credits: Determine all deps we need to ship.
-  * libcurl for all platforms - license added to CREDITS
-  * zlib for Windows - license added to CREDITS
-  * OpenSSL?
-  * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
+    * libcurl for all platforms - license added to CREDITS
+    * zlib for Windows - license added to CREDITS
+    * OpenSSL?
+    * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Fail if test has variable that's not substituted? Or at least warn.
 * Get proper version-control of which dynamic libraries we depend on/provide.
 * Code quality - especially in main.zig - is quite crap at this point.
+* More advanced sequence options:
+    * Specify setup/teardown-tests to be run before/after test/suite/playbook?
+        * --suite-setup, --suite-teardown, --step-setup, --step-teardown?
+        * What about playbooks?
+    * Specify option to only re-run specific steps of a sequence? --steps=1,3,5-7.
 * Support providing variables as parameters? E.g. sapt myfile.pi -DMYVAR=value -DMYVAR2=value2
 * Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
