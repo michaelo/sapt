@@ -1,5 +1,4 @@
 const std = @import("std");
-const utils = @import("utils.zig");
 const fs = std.fs;
 const testing = std.testing;
 
@@ -17,7 +16,7 @@ pub fn readFileRawRel(dir: std.fs.Dir, path: []const u8, target_buf: []u8) !usiz
 }
 
 test "readFileRaw" {
-    var buf = utils.initBoundedArray(u8, 1024 * 1024);
+    var buf = try std.BoundedArray(u8, 1024 * 1024).init(0);
     try testing.expect(buf.slice().len == 0);
     try buf.resize(try readFileRaw("testdata/01-warnme/01-warnme-status-ok.pi", buf.buffer[0..]));
     try testing.expect(buf.slice().len > 0);
@@ -39,7 +38,7 @@ pub fn readFileRel(comptime T: type, comptime S: usize, dir: std.fs.Dir, path: [
 }
 
 test "readFile" {
-    var buf = utils.initBoundedArray(u8, 1024 * 1024);
+    var buf = try std.BoundedArray(u8, 1024 * 1024).init(0);
     try testing.expect(buf.slice().len == 0);
     try readFile(u8, buf.buffer.len, "testdata/01-warnme/01-warnme-status-ok.pi", &buf);
     try testing.expect(buf.slice().len > 0);
