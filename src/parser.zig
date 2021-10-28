@@ -241,7 +241,7 @@ pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(
 
     if(maybe_variables_sets) |variables_sets| for (variables_sets) |variables| {
         expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch(e) {
-            error.NoSuchVariableFound => {}, // This is OK, as we don't know which variable_set the variable to expand may be in 
+            //error.NoSuchVariableFound => {}, // This is OK, as we don't know which variable_set the variable to expand may be in 
             else => return e
         };
     };
@@ -534,8 +534,8 @@ fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, 
                 };
                 pair.resolved = true;
             } else {
-                // debug("Could not find variable: '{s}'\n", .{key});
-                return error.NoSuchVariableFound;
+                debug("WARNING: Could not resolve variable: '{s}'\n", .{key});
+                // result = error.NoSuchVariableFound;
             }
         }
 
@@ -689,7 +689,7 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                 var sub_it = std.mem.split(u8, line[1..], "*");
                 var path = std.mem.trim(u8, sub_it.next().?, " "); // expected to be there, otherwise error
 
-                if (std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_TEST)) {
+                if (std.mem.endsWith(u8, path, config.FILE_EXT_TEST)) {
                     var meta_raw = sub_it.next(); // may be null
                     var repeats: u32 = 1;
                     if (meta_raw) |meta| {
@@ -709,7 +709,7 @@ pub fn parsePlaybook(buf: []const u8, result: []PlaybookSegment) usize {
                         },
                     };
                     seg_idx += 1;
-                } else if (std.mem.endsWith(u8, path, config.CONFIG_FILE_EXT_ENV)) {
+                } else if (std.mem.endsWith(u8, path, config.FILE_EXT_ENV)) {
                     result[seg_idx] = .{ .line_start = line_idx, .segment_type = .EnvInclude, .slice = path };
                     seg_idx += 1;
                 }

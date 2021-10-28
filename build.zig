@@ -72,4 +72,15 @@ pub fn build(b: *std.build.Builder) !void {
 
     const test_step = b.step("test", "Run default test suite");
     test_step.dependOn(&all_tests.step);
+
+    if(target.isNative()) {
+        var all_itests = b.addTest("src/integration_test.zig");
+        all_itests.setBuildMode(mode);
+        all_itests.setFilter("integration:"); // Run only tests prefixed with "integration:"
+        all_itests.linkSystemLibrary("c");
+        all_itests.linkSystemLibrary("libcurl");
+
+        const itest_step = b.step("itest", "Run default integration test suite");
+        itest_step.dependOn(&all_itests.step);
+    }
 }
