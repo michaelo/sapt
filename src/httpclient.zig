@@ -72,6 +72,7 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
 
     // Debug
     if (args.verbose) {
+        std.debug.print("Payload: {s}\n", .{entry.payload.slice()});
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, 1)) != cURL.CURLE_OK)
             return error.CouldNotSetVerbose;
     }
