@@ -429,8 +429,9 @@ fn processPlaybookBuf(test_context: *TestContext, buf_playbook: *std.BoundedArra
 }
 
 test "extracted variables shall be expanded in next test" {
-    var buf_test1 = try std.testing.allocator.create(std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE));
-    defer std.testing.allocator.destroy(buf_test1);
+    var allocator = std.testing.allocator;
+    var buf_test1 = try allocator.create(std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE));
+    defer allocator.destroy(buf_test1);
     buf_test1.* = try std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE).fromSlice(
         \\> GET https://some.url/api/step1
         \\< 0
@@ -438,8 +439,8 @@ test "extracted variables shall be expanded in next test" {
         [0..]
     );
 
-    var buf_test2 = try std.testing.allocator.create(std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE));
-    defer std.testing.allocator.destroy(buf_test2);
+    var buf_test2 = try allocator.create(std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE));
+    defer allocator.destroy(buf_test2);
     buf_test2.* = try std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE).fromSlice(
         \\> GET https://some.url/api/step2
         \\--
@@ -448,7 +449,8 @@ test "extracted variables shall be expanded in next test" {
         [0..]
     );
 
-    var context = TestContext{};
+    var context = try allocator.create(TestContext);
+    defer allocator.destroy(context);
     var args = AppArguments{};
     var input_vars = kvstore.KvStore{};
     var extracted_vars = kvstore.KvStore{};
@@ -469,7 +471,7 @@ test "extracted variables shall be expanded in next test" {
     var oldProcess = httpClientProcessEntry;
     httpClientProcessEntry = HttpClientOverrides.step1;
     parser.expandVariablesAndFunctions(buf_test1.buffer.len, buf_test1, variables_sets[0..]) catch {};
-    try processAndEvaluateEntryFromBuf(&context, 1, 2, "step1"[0..], buf_test1.constSlice(), args, &input_vars, &extracted_vars, 1, 0);
+    try processAndEvaluateEntryFromBuf(context, 1, 2, "step1"[0..], buf_test1.constSlice(), args, &input_vars, &extracted_vars, 1, 0);
     try testing.expect(extracted_vars.slice().len == 1);
     
     // Handle step 2
