@@ -58,7 +58,9 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
     ///////////////////////
 
     // Set HTTP method
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_CUSTOMREQUEST, entry.method.string()) != cURL.CURLE_OK)
+    var method = utils.initBoundedArray(u8, 8);
+    try method.appendSlice(entry.method.string());
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_CUSTOMREQUEST, try utils.boundedArrayAsCstr(method.buffer.len, &method)) != cURL.CURLE_OK)
         return error.CouldNotSetRequestMethod;
 
     // Set URL

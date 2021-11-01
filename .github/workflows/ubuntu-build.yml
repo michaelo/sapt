@@ -32,8 +32,11 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
 
-      - name: Test
+      - name: Unit tests
         run: zig build test
+
+      - name: Integration tests
+        run: zig build itest
         
       - name: Build
         run: zig build --prefix-exe-dir builds\x86_64-linux

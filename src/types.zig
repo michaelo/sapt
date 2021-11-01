@@ -14,8 +14,8 @@ pub const HttpMethod = enum {
     PUT,
     TRACE,
 
-    pub fn string(self: HttpMethod) [*]const u8 {
-        return std.meta.tagName(self).ptr;
+    pub fn string(self: HttpMethod) [:0]const u8 {
+        return @tagName(self);
     }
     pub fn create(raw: []const u8) !HttpMethod {
         return std.meta.stringToEnum(HttpMethod, raw) orelse error.NoSuchHttpMethod;
