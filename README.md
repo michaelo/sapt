@@ -413,6 +413,7 @@ TODO, somewhat ordered:
 ------------
 *Att! The points here are not changes that we strictly commit to, but an organic list of things to consider. Higher up = more likely*
 
+* Implement better check/condition for end-of-payload. Current it will stop at first line starting at '<' which e.g. fill fail big-time for XML-payloads.
 * Separate automagic handling between .env-file explicitly and implicitly passed (through folder)? Explicit should perhaps ignore folder-rules? 
 * Determine if current solution where variables can't be overwritten is a good idea or not.
 * Libs/deps handling:

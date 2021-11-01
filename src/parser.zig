@@ -143,6 +143,7 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
             },
             ParseState.InputPayloadSection => { // Optional section
                 if (line.len == 0) continue;
+                // TODO: This exit-condition for payloads are not sufficient. Will e.g. likely cause false positive for XML payloads
                 if (line[0] == '<') {
                     // Check if payload has been added, and trim trailing newline
                     if (result.payload.slice().len > 0) {
