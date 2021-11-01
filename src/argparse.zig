@@ -28,6 +28,8 @@ pub const AppArguments = struct {
     input_vars_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = utils.initBoundedArray(u8, config.MAX_PATH_LEN),
     //-b=<file>
     playbook_file: std.BoundedArray(u8, config.MAX_PATH_LEN) = utils.initBoundedArray(u8, config.MAX_PATH_LEN),
+    //-delay=NN
+    delay: u64 = 0,
     // ...
     files: std.BoundedArray(FilePathEntry, 128) = utils.initBoundedArray(FilePathEntry, 128),
 };
@@ -59,6 +61,7 @@ pub fn printHelp(full: bool) void {
         \\  -v, --verbose       Verbose output
         \\      --verbose-curl  Verbose output from libcurl
         \\  -d, --show-response Show response data
+        \\      --delay=NN      Delay execution of each consecutive step with NN ms
         \\  -e, --early-quit    Abort upon first non-successful test
         \\  -p, --pretty        Try to format response data based on Content-Type.
         \\                      Naive support for JSON, XML and HTML
@@ -226,6 +229,14 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
 
         if(argHasValue(arg, "--playbook", "-b")) |value| {
             try result.playbook_file.appendSlice(value);
+            continue;
+        }
+
+        if(argHasValue(arg, "--delay", null)) |value| {
+            result.delay = std.fmt.parseUnsigned(u64, value, 10) catch {
+                debug("WARNING: Could not parse value of {s} as a positive number\n", .{arg});
+                return error.InvalidArgument;
+            };
             continue;
         }
 

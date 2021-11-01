@@ -532,6 +532,11 @@ fn processTestlist(test_context: *TestContext, args: *AppArguments, input_vars: 
                 break;
             }
         }
+
+        if(args.delay > 0) {
+            Console.grey("Delaying next test with {}ms\n", .{args.delay});
+            std.time.sleep(args.delay*1000000);
+        }
     }
     Console.plain(
         \\------------------
@@ -565,7 +570,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!Exe
             return ExecutionStats{};
         },
         else => {
-            Console.plain("Invalid arguments.", .{});
+            Console.plain("Invalid arguments.\n", .{});
             argparse.printHelp(true);
             fatal("Exiting.", .{});
         },
