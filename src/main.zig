@@ -87,6 +87,7 @@ pub const EntryResult = struct {
     response_match: bool = false,
     // TODO: Fetch response-length in case it's >1MB?
     response_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
+    response_headers_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
 };
 
 const ProcessStatistics = struct {
@@ -212,7 +213,10 @@ fn extractExtractionEntries(entry: Entry, result: EntryResult, store: *kvstore.K
     // Extract to variables
     for (entry.extraction_entries.constSlice()) |v| {
         if (parser.expressionExtractor(result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
-            // Got match
+            // Got match in response body
+            try store.add(v.name.constSlice(), expression_result.result);
+        } else if (parser.expressionExtractor(result.response_headers_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
+            // Got match in response headers
             try store.add(v.name.constSlice(), expression_result.result);
         } else {
             Console.red("Could not find match for '{s}={s}'\n", .{ v.name.constSlice(), v.expression.constSlice() });
@@ -285,6 +289,9 @@ fn processAndEvaluateEntryFromBuf(test_context: *TestContext, idx: u64, total: u
     }
 
     if (!conclusion or args.verbose or args.show_response_data) {
+        Console.bold("Incoming headers (up to 1024KB):\n", .{});
+        Console.plain("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_headers_first_1mb.slice(), 0, 1024 * 1024)});
+
         Console.bold("Response (up to 1024KB):\n", .{});
         if (!args.show_pretty_response_data) {
             Console.plain("{s}\n\n", .{utils.sliceUpTo(u8, test_context.result.response_first_1mb.slice(), 0, 1024 * 1024)});

@@ -314,8 +314,13 @@ Due in part to the efforts to both having a clear understanding of the RAM-usage
             <td>Max size of payload</td>
             <td>1M</td>
         </tr>
+        <tr>
+            <td>Extraction-expressions: order of precedence</td>
+            <td>sapt will first attempt to match extraction entries with response body first, response headers second.</td>
+        </tr>
     </tbody> 
 </table>
+
 
 
 
@@ -423,10 +428,8 @@ TODO, somewhat ordered:
     * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
     * Look into staticly linking all deps - the absolute best would be a single, self-contained executable
     * Get proper version-control of which dynamic libraries we depend on/provide.
-* Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
     * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows.
-* Fail if test has variable that's not substituted? Or at least warn.
 * Append current git hash (short) for debug-builds. Need to figure out how to detect this at compile-time and inject it properly.
 * Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
 * Code quality - especially in main.zig - is quite crap at this point.
@@ -435,8 +438,9 @@ TODO, somewhat ordered:
         * --suite-setup, --suite-teardown, --step-setup, --step-teardown?
         * What about playbooks?
     * Specify option to only re-run specific steps of a sequence? --steps=1,3,5-7.
-* Support providing variables as parameters? E.g. sapt myfile.pi -DMYVAR=value -DMYVAR2=value2
-* Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.  
+* Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.
+    * Also ensure that total time for entire test set also prints the accumulated value of each step without the delay set by --delay
+* Describe/explore how/if --delay shall affect playbooks. Currently: it doesn't. Playbooks should be self-contained, so we'd need an in-playbook variant of the functionality
 * Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
 * TBD: Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
 * Implement support to do step-by-step tests by e.g. requiring user to press enter between each test?

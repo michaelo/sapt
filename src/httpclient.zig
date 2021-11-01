@@ -47,8 +47,11 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
     defer cURL.curl_easy_cleanup(handle);
 
     // TODO: Shall we get rid of heap? Can use the 1MB-buffer in the entry directly...
-    var response_buffer = std.ArrayList(u8).init(allocator);
-    defer response_buffer.deinit();
+    var response_header_buffer = std.ArrayList(u8).init(allocator);
+    defer response_header_buffer.deinit();
+
+    var response_content_buffer = std.ArrayList(u8).init(allocator);
+    defer response_content_buffer.deinit();
 
     ///////////////////////
     // Setup curl options
@@ -105,7 +108,9 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
     // set write function callbacks
     if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToArrayListCallback) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_buffer) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_HEADERDATA, &response_header_buffer) != cURL.CURLE_OK)
+        return error.CouldNotSetWriteCallback;    
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_content_buffer) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
 
     // TODO: This is the critical part to time
@@ -135,7 +140,11 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
     }
 
     try result.response_first_1mb.resize(0);
-    try result.response_first_1mb.appendSlice(utils.sliceUpTo(u8, response_buffer.items, 0, result.response_first_1mb.capacity()));
+    try result.response_first_1mb.appendSlice(utils.sliceUpTo(u8, response_content_buffer.items, 0, result.response_first_1mb.capacity()));
+
+    try result.response_headers_first_1mb.resize(0);
+    try result.response_headers_first_1mb.appendSlice(utils.sliceUpTo(u8, response_header_buffer.items, 0, result.response_headers_first_1mb.capacity()));
+    
 }
 
 pub fn httpCodeToString(code: u64) []const u8 {
