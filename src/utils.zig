@@ -3,7 +3,7 @@ const testing = std.testing;
 
 // Convenience-function to initiate a bounded-array without inital size of 0, removing the error-case brough by .init(size)
 pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedArray(T, capacity) {
-    return std.BoundedArray(T, capacity){ .buffer = undefined };
+    return std.BoundedArray(T, capacity).init(0) catch unreachable;
 }
 
 /// Att! This adds a terminating zero at current .slice().len if there's capacity.
@@ -46,6 +46,7 @@ test "boundedArrayAsCstr" {
         try testing.expect(str.slice()[0] == 'A');
         try testing.expect(str.slice()[1] == 'B');
         try str.resize(1);
+        try testing.expect(str.slice().ptr[1] == 'B');
         var c_str = try boundedArrayAsCstr(str.buffer.len, &str);
         try testing.expect(c_str[0] == 'A');
         try testing.expect(c_str[1] == 0);
