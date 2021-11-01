@@ -63,7 +63,7 @@ pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryRe
         return error.CouldNotSetURL;
 
     // Set Payload (if given)
-    if (entry.method == .Post or entry.method == .Put or entry.payload.slice().len > 0) {
+    if (entry.method == .POST or entry.method == .PUT or entry.payload.slice().len > 0) {
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDSIZE, entry.payload.slice().len) != cURL.CURLE_OK)
             return error.CouldNotSetPostDataSize;
         if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_POSTFIELDS, try utils.boundedArrayAsCstr(entry.payload.buffer.len, &entry.payload)) != cURL.CURLE_OK)

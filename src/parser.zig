@@ -190,7 +190,7 @@ test "parseContents" {
 
     try parseContents(data, &entry, 0);
 
-    try testing.expectEqual(entry.method, HttpMethod.Get);
+    try testing.expectEqual(entry.method, HttpMethod.GET);
     try testing.expectEqualStrings(entry.url.slice(), "https://api.warnme.no/api/status");
     try testing.expectEqual(entry.expected_http_code, 200);
     try testing.expectEqualStrings(entry.expected_response_substring.slice(), "some regex here");
