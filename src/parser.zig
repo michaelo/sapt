@@ -124,8 +124,9 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
             },
             ParseState.InputSection => {
                 if (ParserFunctions.isEmptyLineOrComment(line)) continue;
-                if (line[0] == '-') {
+                if (line.len == 1 and line[0] == '-') {
                     state = ParseState.InputPayloadSection;
+                    continue;
                 } else if (line[0] == '<') {
                     // Parse initial expected output section
                     state = ParseState.OutputSection;
@@ -133,18 +134,26 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
                         parseError("Could not parse output section header", line_idx, 0, data, line);
                         return e;
                     };
-                } else {
-                    // Parse headers
-                    ParserFunctions.parseHeaderEntry(line, result) catch |e| {
-                        parseError("Could not parse header entry", line_idx, 0, data, line);
-                        return e;
-                    };
+                    continue;
                 }
+
+                // Parse headers
+                ParserFunctions.parseHeaderEntry(line, result) catch |e| {
+                    parseError("Could not parse header entry", line_idx, 0, data, line);
+                    return e;
+                };
             },
             ParseState.InputPayloadSection => { // Optional section
-                if (line.len == 0) continue;
-                // TODO: This exit-condition for payloads are not sufficient. Will e.g. likely cause false positive for XML payloads
-                if (line[0] == '<') {
+                if (line.len > 0 and line[0] == '<') blk: {
+                    // Really ensure. We're in payload-land and have really no control of what the user would want to put in there
+                    ParserFunctions.parseOutputSectionHeader(line, result) catch {
+                        //parseError("Could not parse output section header", line_idx, 0, data, line);
+                        //return e;
+                        // Doesn't look like we've found a proper output section header. Keep parsing as payload
+                        break :blk;
+                    };
+
+                    // If we get here it seems we've parsed ourself a propeper-ish output section header
                     // Check if payload has been added, and trim trailing newline
                     if (result.payload.slice().len > 0) {
                         _ = result.payload.pop();
@@ -152,17 +161,14 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
 
                     // Parse initial expected output section
                     state = ParseState.OutputSection;
-                    ParserFunctions.parseOutputSectionHeader(line, result) catch |e| {
-                        parseError("Could not parse output section header", line_idx, 0, data, line);
-                        return e;
-                    };
-                } else {
-                    // Add each line verbatim to payload-buffer
-                    ParserFunctions.parseInputPayloadLine(line, result) catch |e| {
-                        parseErrorArg("Could not parse payload section - it's too big. Max payload size is {d}B", .{result.payload.capacity()}, line_idx, 0, data, line);
-                        return e;
-                    };
+                    continue;
                 }
+
+                // Add each line verbatim to payload-buffer
+                ParserFunctions.parseInputPayloadLine(line, result) catch |e| {
+                    parseErrorArg("Could not parse payload section - it's too big. Max payload size is {d}B", .{result.payload.capacity()}, line_idx, 0, data, line);
+                    return e;
+                };
             },
             ParseState.OutputSection => {
                 if (ParserFunctions.isEmptyLineOrComment(line)) continue;
@@ -220,11 +226,92 @@ test "parseContents extracts to variables" {
     ;
 
     try parseContents(data, &entry, 0);
-    // debug("sizeof(Entry): {}\n", .{@intToFloat(f64,@sizeOf(Entry))/1024/1024});
     try testing.expectEqual(@intCast(usize, 1), entry.extraction_entries.slice().len);
     try testing.expectEqualStrings("myvar", entry.extraction_entries.get(0).name.slice());
     try testing.expectEqualStrings("regexwhichextractsvalue", entry.extraction_entries.get(0).expression.slice());
 }
+
+test "parseContents supports JSON-payloads" {
+    {
+        var entry = Entry{};
+
+        const data =
+            \\> POST https://my/service
+            \\-
+            \\{"key":{"inner-key":[1,2,3]}}
+            \\< 200
+            \\
+        ;
+
+        try parseContents(data, &entry, 0);
+        try testing.expectEqualStrings(
+            \\{"key":{"inner-key":[1,2,3]}}
+            , entry.payload.constSlice());
+    }
+    {
+        var entry = Entry{};
+
+        const data =
+            \\> POST https://my/service
+            \\-
+            \\{"key":
+            \\
+            \\     {"inner-key":
+            \\   [1
+            \\  ,2,3]
+            \\}}
+            \\< 200
+            \\
+        ;
+
+        try parseContents(data, &entry, 0);
+        try testing.expectEqualStrings(
+            \\{"key":
+            \\
+            \\     {"inner-key":
+            \\   [1
+            \\  ,2,3]
+            \\}}
+            , entry.payload.constSlice());
+    }
+}
+
+test "parseContents supports XML-payloads" {
+    var entry = Entry{};
+
+    const data =
+        \\> POST https://my/service
+        \\-
+        \\<SOAP-ENV:Envelope
+        \\  xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+        \\  SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+        \\   <SOAP-ENV:Body>
+        \\       <m:GetLastTradePrice xmlns:m="Some-URI">
+        \\           <symbol>DIS</symbol>
+        \\       </m:GetLastTradePrice>
+        \\   </SOAP-ENV:Body>
+        \\</SOAP-ENV:Envelope>
+        \\< 200
+        \\
+    ;
+
+    try parseContents(data, &entry, 0);
+    try testing.expectEqualStrings(
+        \\<SOAP-ENV:Envelope
+        \\  xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+        \\  SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+        \\   <SOAP-ENV:Body>
+        \\       <m:GetLastTradePrice xmlns:m="Some-URI">
+        \\           <symbol>DIS</symbol>
+        \\       </m:GetLastTradePrice>
+        \\   </SOAP-ENV:Body>
+        \\</SOAP-ENV:Envelope>
+        , entry.payload.constSlice());
+}
+
+// test "parseContents supports binary-payloads?" {
+    
+// }
 
 pub fn dumpUnresolvedBracketPairsForBuffer(buf: []const u8, brackets: []const BracketPair) void {
     for (brackets) |pair, i| {
