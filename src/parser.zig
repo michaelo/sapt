@@ -142,6 +142,7 @@ pub fn parseContents(data: []const u8, result: *Entry, line_idx_offset: usize) e
                 }
             },
             ParseState.InputPayloadSection => { // Optional section
+                if (line.len == 0) continue;
                 if (line[0] == '<') {
                     // Check if payload has been added, and trim trailing newline
                     if (result.payload.slice().len > 0) {
@@ -342,9 +343,11 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
                     if (opens.slice().len > 0) {
                         try pairs.append(BracketPair{ .start = opens.pop(), .end = i + 1, .depth = opens.slice().len });
                     } else {
-                        debug("ERROR: Found close-brackets at idx={d} with none open", .{i});
-                        return errors.ParseError;
+                        // TODO: convert to line and col
                         // TODO: Print surrounding slice?
+                        // Not an error. E.g. for json-payloads... 
+                        debug("WARNING: Found close-brackets at idx={d} with none open\n", .{i});
+                        // return errors.ParseError;
                     }
                 }
             },
@@ -353,8 +356,8 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
     }
 
     if (opens.slice().len > 0) {
-        for (opens.slice()) |idx| debug("ERROR: Brackets remaining open: idx={d}\n", .{idx});
-        return errors.ParseError;
+        for (opens.slice()) |idx| debug("WARNING: Brackets remaining open: idx={d}\n", .{idx});
+        // return errors.ParseError;
         // TODO: Print surrounding slice?
     }
 
