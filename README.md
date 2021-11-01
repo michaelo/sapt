@@ -25,6 +25,39 @@ Running a single test:
 Help:
 
     % sapt -h
+    sapt v1.0.0-rc4 - Simple API Tester
+
+    Usage: sapt [arguments] [file1.pi file2.pi ... fileN.pi]
+
+    try 'sapt --help' for more information.
+
+    sapt api_is_healthy.pi
+    sapt testsuite01/
+    sapt -b=myplaybook.book
+    sapt -i=generaldefs/.env testsuite01/
+
+    Arguments
+    -h, --help          Show this help and exit
+        --help-format   Show details regarding file formats and exit
+        --version       Show version and exit
+    -v, --verbose       Verbose output
+        --verbose-curl  Verbose output from libcurl
+    -d, --show-response Show response data
+        --delay=NN      Delay execution of each consecutive step with NN ms
+    -e, --early-quit    Abort upon first non-successful test
+    -p, --pretty        Try to format response data based on Content-Type.
+                        Naive support for JSON, XML and HTML
+    -m, --multithread   Activates multithreading - relevant for repeated tests
+                        via playbooks
+        --insecure      Don't verify SSL certificates
+    -i=file, --initial-vars=file
+                        Provide file with variable-definitions made available to
+                        all tests
+    -b=file, --playbook=file
+                        Read tests to perform from playbook-file -- if set,
+                        ignores other tests passed as arguments
+    -DKEY=VALUE         Define variable, similar to .env-files. Can be set
+                        multiple times
 
 
 sapt can take multiple arguments, both files and folders. The entire input-set will be sorted alphanumerically, thus you can dictate the order of execution by making sure the names of the scripts reflects the order:
