@@ -418,6 +418,7 @@ TODO, somewhat ordered:
 ------------
 *Att! The points here are not changes that we strictly commit to, but an organic list of things to consider. Higher up = more likely*
 
+* Implement flag --no-color + see if we can detect tty vs piped output re color-support
 * Separate automagic handling between .env-file explicitly and implicitly passed (through folder)? Explicit should perhaps ignore folder-rules? 
 * Determine if current solution where variables can't be overwritten is a good idea or not.
 * Libs/deps handling:
