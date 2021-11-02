@@ -424,11 +424,19 @@ test "parseArgs -DKEY=VALUE" {
     }
 }
 
+/// For debug
+fn dumpFileList(files: []FilePathEntry) void {
+    for (files) |itm, idx| {
+        debug("{d}: {s}\n", .{idx, itm.constSlice()});
+    }
+}
+
 pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedArray(FilePathEntry, max_files)) !void {
     // Fail on files not matching expected name-pattern
     // Expand folders
     // Verify that files exists and are readable
     var cwd = fs.cwd();
+
     const readFlags = std.fs.File.OpenFlags{ .read = true };
     {
         var i: usize = 0;
@@ -448,8 +456,9 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                 else => return error.UnknownError,
             };
             defer dir.close();
-
+            
             var d_it = dir.iterate();
+            var dir_slice_start = i;
             while (try d_it.next()) |a_path| {
                 var stat = try (try dir.openFile(a_path.name, readFlags)).stat();
                 switch (stat.kind) {
@@ -458,37 +467,31 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                         try item.appendSlice(file.constSlice());
                         try item.appendSlice("/");
                         try item.appendSlice(a_path.name);
-                        // Add to files
-                        try files.append(item);
+                        // Add to files at spot of folder - pushing it further back in the list
+                        try files.insert(i, item);
+                        i+=1;
                     },
                     .Directory => {
-                        debug("Found subdir: {s}\n", .{a_path.name});
-                        // If recursive: process
+                        // debug("Found subdir: {s}\n", .{a_path.name});
+                        // If recursive: process?
                     },
                     else => {},
                 }
             }
+
+            // Remove folder entry - don't need it
+            _= files.orderedRemove(i);
+            i -= 1;
+
+            // Ensure folder-entries is sorted
+            std.sort.sort(FilePathEntry, files.slice()[dir_slice_start..i+1], {}, struct {
+                fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
+                    _ = context;
+                    return std.mem.lessThan(u8, a.constSlice(), b.constSlice());
+                }
+            }.func);
         }
     }
-
-    // Remove all folders
-    for (files.slice()) |file, i| {
-        _ = cwd.openDir(file.constSlice(), .{ .iterate = true }) catch {
-            // Not a dir, leave alone
-            continue;
-        };
-
-        // Dir, remove
-        _ = files.swapRemove(i);
-    }
-
-    // Sort the remainding entries
-    std.sort.sort(FilePathEntry, files.slice(), {}, struct {
-        fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
-            _ = context;
-            return std.mem.lessThan(u8, a.constSlice(), b.constSlice());
-        }
-    }.func);
 }
 
 test "processInputFileArguments" {
