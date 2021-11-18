@@ -14,6 +14,8 @@ pub const AppArguments = struct {
     verbose: bool = false,
     //--verbose-curl TODO: Rename to --verbose-http / --verbose-request ?
     verbose_curl: bool = false,
+    //-s
+    silent: bool = false,
     //--insecure
     ssl_insecure: bool = false,
     //--show-response,-d
@@ -58,9 +60,10 @@ pub fn printHelp(full: bool) void {
         \\  -h, --help          Show this help and exit
         \\      --help-format   Show details regarding file formats and exit
         \\      --version       Show version and exit
+        \\  -s, --silent        Silent. Suppresses output. Overrules verbose.
         \\  -v, --verbose       Verbose output
         \\      --verbose-curl  Verbose output from libcurl
-        \\  -d, --show-response Show response data
+        \\  -d, --show-response Show response data. Even if -s.
         \\      --delay=NN      Delay execution of each consecutive step with NN ms
         \\  -e, --early-quit    Abort upon first non-successful test
         \\  -p, --pretty        Try to format response data based on Content-Type.
@@ -206,12 +209,18 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
             continue;
         }
 
-        if(argIs(arg, "--verbose", "-v")) {
+        if(argIs(arg, "--silent", "-v")) {
+            result.silent = true;
+            result.verbose = false;
+            continue;
+        }
+
+        if(!result.silent and argIs(arg, "--verbose", "-v")) {
             result.verbose = true;
             continue;
         }
 
-        if(argIs(arg, "--verbose-curl", null)) {
+        if(!result.silent and argIs(arg, "--verbose-curl", null)) {
             result.verbose_curl = true;
             continue;
         }
