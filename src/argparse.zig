@@ -42,12 +42,17 @@ pub fn printHelp(full: bool) void {
         \\
         \\Usage: {0s} [arguments] [file1.pi file2.pi ... fileN.pi]
         \\
-        \\try '{0s} --help' for more information.
         \\
-        \\
-    , .{ config.APP_NAME, config.APP_VERSION});
+        , .{ config.APP_NAME, config.APP_VERSION});
 
-    if (!full) return;
+    if (!full) {
+        debug(
+            \\try '{0s} --help' for more information.
+            \\
+            \\
+            , .{ config.APP_NAME});
+        return;
+    }
     
     debug(
         \\{0s} api_is_healthy.pi
@@ -209,7 +214,7 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
             continue;
         }
 
-        if(argIs(arg, "--silent", "-v")) {
+        if(argIs(arg, "--silent", "-s")) {
             result.silent = true;
             result.verbose = false;
             continue;
