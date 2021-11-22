@@ -70,8 +70,8 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
                 // Critical section
                 // Pop work
                 {
-                    const held = self.work_mutex.acquire();
-                    defer held.release();
+                    self.work_mutex.lock();
+                    defer self.work_mutex.unlock();
 
                     if(!self.isWork()) break;
                     work = self.takeWork() catch { break; };
@@ -127,8 +127,8 @@ test "threadpool basic implementation" {
         result: *MyPayloadResult,
 
         pub fn worker(self: *Self) void {
-            const held = self.result.mutex.acquire();
-            defer held.release();
+            self.result.mutex.lock();
+            defer self.result.mutex.unlock();
             
             var total = self.result.total;
             total += self.data;
