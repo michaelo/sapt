@@ -3,87 +3,121 @@ const std = @import("std");
 pub const Color = std.debug.TTY.Color;
 
 pub const Console = struct {
+    const Self = @This();
 
-    pub fn reset() void {
-        const stdout = std.io.getStdOut().writer();
-        var ttyconf = std.debug.detectTTYConfig();
+    pub const ColorConfig = enum {
+        on,
+        off,
+        auto
+    };
 
-        ttyconf.setColor(stdout, .Reset);
+    // Writers
+    debug_writer: ?std.fs.File.Writer = null,
+    std_writer: ?std.fs.File.Writer = null,
+    error_writer: ?std.fs.File.Writer = null,
+    verbose_writer: ?std.fs.File.Writer = null,
+
+    ttyconf: std.debug.TTY.Config,
+
+    pub fn initNull() Self {
+        return Self {
+            .ttyconf = Console.colorConfig(.off),
+        };
     }
 
-    /// Convenience-function to print only if condition is met
-    pub fn printIf(condition: bool, maybo_color: ?Color, comptime fmt:[]const u8, args: anytype) void {
-        if(!condition) return;
-        var color = maybo_color orelse .Reset;
-
-        const stdout = std.io.getStdOut().writer();
-        var ttyconf = std.debug.detectTTYConfig();
-
-        ttyconf.setColor(stdout, color);
-        stdout.print(fmt, args) catch {};
-        ttyconf.setColor(stdout, .Reset);        
+    pub fn init(args: struct {
+        std_writer: ?std.fs.File.Writer,
+        error_writer: ?std.fs.File.Writer,
+        verbose_writer: ?std.fs.File.Writer,
+        debug_writer: ?std.fs.File.Writer,
+        colors: ColorConfig}) Self {
+        // TODO: Pass in config to determine if we shall use color codes or not
+        return Self {
+            .debug_writer = args.debug_writer,
+            .std_writer = args.std_writer,
+            .error_writer = args.error_writer,
+            .verbose_writer = args.verbose_writer,
+            .ttyconf = Console.colorConfig(args.colors),
+        };
     }
 
-    pub fn plain(comptime fmt:[]const u8, args: anytype) void {
-        const stdout = std.io.getStdOut().writer();
-        var ttyconf = std.debug.detectTTYConfig();
-
-        ttyconf.setColor(stdout, .Reset);
-        stdout.print(fmt, args) catch {};
-        ttyconf.setColor(stdout, .Reset);
+    pub fn initSimple(writer: ?std.fs.File.Writer) Self {
+        return Self {
+            .debug_writer = writer,
+            .std_writer = writer,
+            .error_writer = writer,
+            .verbose_writer = writer,
+            .ttyconf = std.debug.detectTTYConfig(),
+        };
     }
 
-    pub fn grey(comptime fmt:[]const u8, args: anytype) void {
-        const stdout = std.io.getStdOut().writer();
-        var ttyconf = std.debug.detectTTYConfig();
-
-        ttyconf.setColor(stdout, .Dim);
-        stdout.print(fmt, args) catch {};
-        ttyconf.setColor(stdout, .Reset);
+    fn colorConfig(value: ColorConfig) std.debug.TTY.Config {
+        return switch(value) {
+            .on => .escape_codes,
+            .off => .no_color,
+            .auto => std.debug.detectTTYConfig()
+        };
     }
 
-    pub fn red(comptime fmt:[]const u8, args: anytype) void {
-        const stdout = std.io.getStdOut().writer();
-        var ttyconf = std.debug.detectTTYConfig();
-
-        ttyconf.setColor(stdout, .Red);
-        stdout.print(fmt, args) catch {};
-        ttyconf.setColor(stdout, .Reset);
+    fn out(self: *const Self, maybe_writer: ?std.fs.File.Writer, maybe_color: ?Color, comptime fmt:[]const u8, args: anytype) void {
+        if(maybe_writer == null) return;
+        const writer = maybe_writer.?;
+        if(maybe_color) |color| {
+           self.ttyconf.setColor(writer, color);
+        }
+        writer.print(fmt, args) catch {};
+        if(maybe_color != null) {
+           self.ttyconf.setColor(writer, .Reset);
+        }
     }
 
-    pub fn green(comptime fmt:[]const u8, args: anytype) void {
-        const stdout = std.io.getStdOut().writer();
-        var ttyconf = std.debug.detectTTYConfig();
-
-        ttyconf.setColor(stdout, .Green);
-        stdout.print(fmt, args) catch {};
-        ttyconf.setColor(stdout, .Reset);
+    // TODO: std/error/verbose/debug + Print/Reset/Color()
+    pub fn stdPrint(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.std_writer, null, fmt, args);
     }
 
-    pub fn bold(comptime fmt:[]const u8, args: anytype) void {
-        const stdout = std.io.getStdOut().writer();
-        var ttyconf = std.debug.detectTTYConfig();
-
-        ttyconf.setColor(stdout, .Bold);
-        stdout.print(fmt, args) catch {};
-        ttyconf.setColor(stdout, .Reset);
+    pub fn stdColored(self: *const Self, color: Color, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.std_writer, color, fmt, args);        
     }
 
-    // TODO: Add wrapper for error() and debug()?
+    pub fn errorPrint(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
+        self.errorColored(.Red, "ERROR: ", .{});
+        self.out(self.error_writer, null, fmt, args);
+    }
 
-    pub fn nl() void {
-        const stdout = std.io.getStdOut().writer();
-        // var ttyconf = std.debug.detectTTYConfig();
+    pub fn errorPrintNoPrefix(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.error_writer, null, fmt, args);
+    }
 
-        stdout.writeAll("\n");
+    pub fn errorColored(self: *const Self, color: Color, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.error_writer, color, fmt, args);        
+    }
+
+    // TBD: What's the use case for "debug"?
+    pub fn debugPrint(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.debug_writer, null, fmt, args);
+    }
+
+    pub fn debugColored(self: *const Self, color: Color, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.debug_writer, color, fmt, args);        
+    }
+
+    pub fn verbosePrint(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.verbose_writer, null, fmt, args);
+    }
+
+    pub fn verboseColored(self: *const Self, color: Color, comptime fmt:[]const u8, args: anytype) void {
+        self.out(self.verbose_writer, color, fmt, args);        
     }
 };
 
 test "Console" {
-    const c = Console;
-    c.plain("Console.plain()\n", .{});
-    c.grey("Console.grey()\n", .{});
-    c.red("Console.red()\n", .{});
-    c.green("Console.green()\n", .{});
-    c.bold("Console.bold()\n", .{});
+    const stdout = std.io.getStdOut().writer();
+    const c = Console.initSimple(stdout);
+    c.stdPrint("\n", .{});
+
+    c.errorPrint("Something very wrong\n", .{});
+    c.stdPrint("Regular output\n", .{});
+    c.debugPrint("Debug output\n", .{});
+    c.verbosePrint("Verbose output\n", .{});
 }

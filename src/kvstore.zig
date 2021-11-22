@@ -14,6 +14,8 @@ pub const MAX_KV_VALUE_LEN = 8 * 1024;
 // Current characteristics: ordered, write-once-pr-key store - you can't update existing entries. TODO: rename accordingly
 // Name suggestion: OrderedWoKvStore?
 pub const KvStore = struct {
+    const Self = @This();
+
     pub const KvStoreEntry = struct {
         key: std.BoundedArray(u8, MAX_KV_KEY_LEN) = utils.initBoundedArray(u8, MAX_KV_KEY_LEN),
         value: std.BoundedArray(u8, MAX_KV_VALUE_LEN) = utils.initBoundedArray(u8, MAX_KV_VALUE_LEN),
@@ -27,7 +29,7 @@ pub const KvStore = struct {
 
     store: std.BoundedArray(KvStoreEntry, 32) = utils.initBoundedArray(KvStoreEntry, 32),
 
-    pub fn add(self: *KvStore, key: []const u8, value: []const u8) !void {
+    pub fn add(self: *Self, key: []const u8, value: []const u8) !void {
         if (try self.getIndexFor(key)) |i| {
             try self.store.insert(i, try KvStoreEntry.create(key, value));
         } else {
@@ -37,7 +39,7 @@ pub const KvStore = struct {
     }
 
     // Find point to insert new key to keep list sorted, or null if it must be appended to end
-    pub fn getIndexFor(self: *KvStore, key: []const u8) !?usize {
+    pub fn getIndexFor(self: *Self, key: []const u8) !?usize {
         // Will find point to insert new key to keep list sorted
         if (self.count() == 0) return null;
 
@@ -57,7 +59,7 @@ pub const KvStore = struct {
         return null; // This means end, and thus an append must be done
     }
 
-    pub fn get(self: *KvStore, key: []const u8) ?[]const u8 {
+    pub fn get(self: *Self, key: []const u8) ?[]const u8 {
         // TODO: binary search
         for (self.store.slice()) |entry| {
             if (std.mem.eql(u8, entry.key.constSlice(), key)) {
@@ -68,11 +70,11 @@ pub const KvStore = struct {
         return null;
     }
 
-    pub fn count(self: *KvStore) usize {
+    pub fn count(self: *Self) usize {
         return self.store.slice().len;
     }
 
-    pub fn slice(self: *KvStore) []KvStoreEntry {
+    pub fn slice(self: *Self) []KvStoreEntry {
         return self.store.slice();
     }
 
@@ -92,7 +94,7 @@ pub const KvStore = struct {
         return store;
     }
 
-    pub fn addFromBuffer(self: *KvStore, buf: []const u8, collision_handling: CollisionStrategy) !void {
+    pub fn addFromBuffer(self: *Self, buf: []const u8, collision_handling: CollisionStrategy) !void {
         var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
         while (line_it.next()) |line| {
             if (line.len == 0) continue;
@@ -114,7 +116,7 @@ pub const KvStore = struct {
 
     pub const CollisionStrategy = enum { KeepFirst, Fail };
 
-    pub fn addFromOther(self: *KvStore, other: KvStore, collision_handling: CollisionStrategy) !void {
+    pub fn addFromOther(self: *Self, other: KvStore, collision_handling: CollisionStrategy) !void {
         for (other.store.constSlice()) |entry| {
             self.add(entry.key.constSlice(), entry.value.constSlice()) catch |e| switch (e) {
                 error.KeyAlreadyUsed => switch (collision_handling) {

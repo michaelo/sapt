@@ -14,6 +14,9 @@ const Writer = std.fs.File.Writer;
 
 const INDENTATION_STEP = 4;
 
+/// Module entry point. Takes a MIME-type and returns a function which takes a std.fs.File.Writer and a u8-slice to
+/// format and write to that Writer.
+/// The pretty-printers support writing partial chunks.
 pub fn getPrettyPrinterByContentType(content_type: []const u8) fn (Writer, []const u8) anyerror!void {
     if (isContentTypeJson(content_type)) return prettyprintJson;
     if (isContentTypeXml(content_type)) return prettyprintXml;
@@ -36,33 +39,29 @@ fn nl(writer: Writer, num: i64) !void {
     while (i > 0) : (i -= 1) try writer.print(" ", .{});
 }
 
-fn isContentTypeJson(content_type: []const u8) bool {
-    const types_chunk = [_][]const u8{
-        "/json",
-    };
-
-    for (types_chunk) |end| {
+fn isContentType(content_type: []const u8, types_chunks: []const []const u8) bool {
+    for (types_chunks) |end| {
         if (std.mem.indexOf(u8, content_type, end) != null) return true;
     }
     return false;
+}
+
+fn isContentTypeJson(content_type: []const u8) bool {
+    const types_chunk = [_][]const u8{"/json"};
+
+    return isContentType(content_type, types_chunk[0..]);
 }
 
 fn isContentTypeXml(content_type: []const u8) bool {
     const types_chunk = [_][]const u8{ "/xml", "+xml" };
 
-    for (types_chunk) |end| {
-        if (std.mem.indexOf(u8, content_type, end) != null) return true;
-    }
-    return false;
+    return isContentType(content_type, types_chunk[0..]);
 }
 
 fn isContentTypeHtml(content_type: []const u8) bool {
     const types_chunk = [_][]const u8{"/html"};
 
-    for (types_chunk) |end| {
-        if (std.mem.indexOf(u8, content_type, end) != null) return true;
-    }
-    return false;
+    return isContentType(content_type, types_chunk[0..]);
 }
 
 test "isContentTypeJson" {
@@ -246,12 +245,12 @@ fn prettyprintXml(writer: Writer, data: []const u8) anyerror!void {
                     i += j - 1;
                 }
             }
+
             // Only increase indentation for open-tags
             if (!is_close_tag and data[i - 1] != '/' and !isHtmlOrXmlSelfclosingElement(current_tag)) {
                 indent_level += INDENTATION_STEP;
-            } else if (is_close_tag) {
-                // indent_level -= INDENTATION_STEP;
             }
+
             try nl(writer, indent_level);
         },
         // Ignore all newlines
@@ -330,7 +329,6 @@ fn isValidTagChar(char: u8) bool {
 fn getTagName(buf: []const u8) []const u8 {
     var i: usize = 0;
     while (i < buf.len and isValidTagChar(buf[i])) : (i += 1) {}
-    // debug("i: {d}\n", .{i});
     return buf[0..i];
 }
 

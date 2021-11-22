@@ -6,14 +6,19 @@ const main = @import("main.zig");
 const utils = @import("utils.zig");
 const config = @import("config.zig");
 const kvstore = @import("kvstore.zig");
+const Console = @import("console.zig").Console;
 
 pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
 
 pub const AppArguments = struct {
+    //--colors
+    colors: Console.ColorConfig = .auto,
     //--verbose,-v
     verbose: bool = false,
     //--verbose-curl TODO: Rename to --verbose-http / --verbose-request ?
     verbose_curl: bool = false,
+    //-s
+    silent: bool = false,
     //--insecure
     ssl_insecure: bool = false,
     //--show-response,-d
@@ -40,42 +45,51 @@ pub fn printHelp(full: bool) void {
         \\
         \\Usage: {0s} [arguments] [file1.pi file2.pi ... fileN.pi]
         \\
-        \\try '{0s} --help' for more information.
         \\
-        \\
-    , .{ config.APP_NAME, config.APP_VERSION});
+        , .{ config.APP_NAME, config.APP_VERSION});
 
-    if (!full) return;
+    if (!full) {
+        debug(
+            \\try '{0s} --help' for more information.
+            \\
+            \\
+            , .{ config.APP_NAME});
+        return;
+    }
     
     debug(
-        \\{0s} api_is_healthy.pi
-        \\{0s} testsuite01/
-        \\{0s} -b=myplaybook.book
-//        \\{0s} -p=myplaybook.book -s -o=output.log
-        \\{0s} -i=generaldefs/.env testsuite01/
+        \\Examples:
+        \\  {0s} api_is_healthy.pi
+        \\  {0s} testsuite01/
+        \\  {0s} -b=myplaybook.book
+//        \\  {0s} -p=myplaybook.book -s -o=output.log
+        \\  {0s} -i=generaldefs/.env testsuite01/
         \\
-        \\Arguments
-        \\  -h, --help          Show this help and exit
-        \\      --help-format   Show details regarding file formats and exit
-        \\      --version       Show version and exit
-        \\  -v, --verbose       Verbose output
-        \\      --verbose-curl  Verbose output from libcurl
-        \\  -d, --show-response Show response data
-        \\      --delay=NN      Delay execution of each consecutive step with NN ms
-        \\  -e, --early-quit    Abort upon first non-successful test
-        \\  -p, --pretty        Try to format response data based on Content-Type.
-        \\                      Naive support for JSON, XML and HTML
-        \\  -m, --multithread   Activates multithreading - relevant for repeated tests
-        \\                      via playbooks
-        \\      --insecure      Don't verify SSL certificates
-        \\  -i=file, --initial-vars=file
-        \\                      Provide file with variable-definitions made available to
-        \\                      all tests
-        \\  -b=file, --playbook=file
-        \\                      Read tests to perform from playbook-file -- if set,
-        \\                      ignores other tests passed as arguments
-        \\  -DKEY=VALUE         Define variable, similar to .env-files. Can be set
-        \\                      multiple times
+        \\Arguments:
+        \\      --colors=auto|on|off Set wether to attempt to use colored output or not
+        \\      --delay=NN          Delay execution of each consecutive step with NN ms
+        \\  -e, --early-quit        Abort upon first non-successful test
+        \\  -h, --help              Show this help and exit
+        \\      --help-format       Show details regarding file formats and exit
+        \\  -i=file,
+        \\      --initial-vars=file Provide file with variable-definitions made available
+        \\                          to all tests
+        \\      --insecure          Don't verify SSL certificates
+        \\  -m, --multithread       Activates multithreading - relevant for repeated
+        \\                          tests via playbooks
+        \\  -p, --pretty            Try to format response data based on Content-Type.
+        \\                          Naive support for JSON, XML and HTML
+        \\  -b=file,
+        \\      --playbook=file     Read tests to perform from playbook-file -- if set,
+        \\                          ignores other tests passed as arguments
+        \\  -d, --show-response     Show response data. Even if -s.
+        \\  -s, --silent            Silent. Suppresses output. Overrules verbose.
+        \\  -v, --verbose           Verbose output
+        \\      --verbose-curl      Verbose output from libcurl
+        \\      --version           Show version and exit
+        \\
+        \\  -DKEY=VALUE             Define variable, similar to .env-files. Can be set
+        \\                          multiple times
         \\
     , .{config.APP_NAME});
 }
@@ -206,12 +220,18 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
             continue;
         }
 
-        if(argIs(arg, "--verbose", "-v")) {
+        if(argIs(arg, "--silent", "-s")) {
+            result.silent = true;
+            result.verbose = false;
+            continue;
+        }
+
+        if(!result.silent and argIs(arg, "--verbose", "-v")) {
             result.verbose = true;
             continue;
         }
 
-        if(argIs(arg, "--verbose-curl", null)) {
+        if(!result.silent and argIs(arg, "--verbose-curl", null)) {
             result.verbose_curl = true;
             continue;
         }
@@ -240,6 +260,12 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
             continue;
         }
 
+        if(argHasValue(arg, "--colors", null)) |value| {
+            result.colors = std.meta.stringToEnum(Console.ColorConfig, value) orelse return error.InvalidArgument;
+            continue;
+        }
+
+
         if(maybe_variables) |variables| if(std.mem.startsWith(u8, arg, "-D")) {
             // Found variable-entry
             try variables.addFromBuffer(arg[2..], .KeepFirst);
@@ -255,6 +281,35 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
     }
 
     return result;
+}
+
+test "parseArgs colors" {
+    // Default
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.auto, parsed_args.colors);
+    }
+    // Checking all alternatives
+    {
+        var myargs = [_][]const u8{"--colors=auto"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.auto, parsed_args.colors);
+    }
+    {
+        var myargs = [_][]const u8{"--colors=on"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.on, parsed_args.colors);
+    }
+    {
+        var myargs = [_][]const u8{"--colors=off"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.off, parsed_args.colors);
+    }
+    {
+        var myargs = [_][]const u8{"--colors=blah"};
+        try testing.expectError(error.InvalidArgument, parseArgs(myargs[0..], null));
+    }
 }
 
 test "parseArgs verbosity" {
