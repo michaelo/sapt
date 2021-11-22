@@ -300,6 +300,7 @@ pub const AppContext = struct {
             console.stdColored(.Dim, "  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{ stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg });
         }
 
+        // Check if test as a total is considered successfull (http code match + optional pattern match requirement)
         if (conclusion) {
             // No need to extract if not successful
             // Failure to extract is a failure to the test
@@ -325,15 +326,19 @@ pub const AppContext = struct {
             }
         }
 
-        if (!conclusion or args.verbose or args.show_response_data) {
+        // Check for conditions to print response data
+        // If not --silent, it will by default print response upon failed tests
+        // To show response for successful tests: --show-response
+        // TBD: What if we want overrall results, but no data upon failed tests?
+        if ((!conclusion and !args.silent) or args.show_response_data) {
             console.stdColored(.Bold, "Incoming headers (up to 1024KB):\n", .{});
             console.stdPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_headers_first_1mb.slice(), 0, 1024 * 1024)});
 
             console.stdColored(.Bold, "Response (up to 1024KB):\n", .{});
             if (!args.show_pretty_response_data) {
-                console.stdPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_first_1mb.slice(), 0, 1024 * 1024)});
-            } else {
-                try pretty.getPrettyPrinterByContentType(test_ctx.result.response_content_type.slice())(std.io.getStdOut().writer(), test_ctx.result.response_first_1mb.slice());
+                console.debugPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_first_1mb.slice(), 0, 1024 * 1024)});
+            } else if(console.debug_writer) |debug_writer| {
+                try pretty.getPrettyPrinterByContentType(test_ctx.result.response_content_type.slice())(debug_writer, test_ctx.result.response_first_1mb.slice());
             }
         }
 
@@ -594,9 +599,9 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!Exe
 
     const console = Console.init(.{
         .std_writer = if(!parsed_args.silent) stdout else null,
-        .debug_writer = if(!parsed_args.silent) null else stdout,
-        .verbose_writer = if(parsed_args.verbose) stdout else null,
-        .error_writer = if(parsed_args.silent) null else stderr,
+        .debug_writer = stdout,
+        .verbose_writer = if(!parsed_args.verbose) null else stdout,
+        .error_writer = if(!parsed_args.silent) stderr else null,
     });
 
     var app_ctx = try AppContext.create(allocator, console);
@@ -625,6 +630,10 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!Exe
         stats = try app_ctx.processTestlist(&parsed_args, &input_vars, &extracted_vars);
     }
 
+    if(stats.num_fail > 0) {
+        console.errorPrint("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
+    }
+
     return stats;
 }
 
@@ -651,7 +660,6 @@ pub fn main() !void {
     };
 
     if (stats.num_fail > 0) {
-        std.debug.print("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
         exit(.TestsFailed);
     }
 
