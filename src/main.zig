@@ -321,7 +321,7 @@ pub const AppContext = struct {
                 console.errorPrint("Expected HTTP '{d} - {s}', got '{d} - {s}'\n", .{ test_ctx.entry.expected_http_code, httpclient.httpCodeToString(test_ctx.entry.expected_http_code), test_ctx.result.response_http_code, httpclient.httpCodeToString(test_ctx.result.response_http_code) });
             }
 
-            if (!test_ctx.result.response_match) {
+            if (!test_ctx.result.response_match and test_ctx.entry.expected_response_substring.constSlice().len > 0) {
                 console.errorPrint("Match requirement '{s}' was not successful\n", .{test_ctx.entry.expected_response_substring.constSlice()});
             }
         }
@@ -331,14 +331,20 @@ pub const AppContext = struct {
         // To show response for successful tests: --show-response
         // TBD: What if we want overrall results, but no data upon failed tests?
         if ((!conclusion and !args.silent) or args.show_response_data) {
-            console.stdColored(.Bold, "Incoming headers (up to 1024KB):\n", .{});
-            console.stdPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_headers_first_1mb.slice(), 0, 1024 * 1024)});
+            // Headers
+            if(test_ctx.result.response_headers_first_1mb.slice().len > 0) {
+                console.stdColored(.Bold, "Incoming headers (up to 1024KB):\n", .{});
+                console.stdPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_headers_first_1mb.slice(), 0, 1024 * 1024)});
+            }
 
-            console.stdColored(.Bold, "Response (up to 1024KB):\n", .{});
-            if (!args.show_pretty_response_data) {
-                console.debugPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_first_1mb.slice(), 0, 1024 * 1024)});
-            } else if(console.debug_writer) |debug_writer| {
-                try pretty.getPrettyPrinterByContentType(test_ctx.result.response_content_type.slice())(debug_writer, test_ctx.result.response_first_1mb.slice());
+            // Body
+            if(test_ctx.result.response_first_1mb.slice().len > 0) {
+                console.stdColored(.Bold, "Response (up to 1024KB):\n", .{});
+                if (!args.show_pretty_response_data) {
+                    console.debugPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_first_1mb.slice(), 0, 1024 * 1024)});
+                } else if(console.debug_writer) |debug_writer| {
+                    try pretty.getPrettyPrinterByContentType(test_ctx.result.response_content_type.slice())(debug_writer, test_ctx.result.response_first_1mb.slice());
+                }
             }
         }
 
