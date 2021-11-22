@@ -5,6 +5,12 @@ pub const Color = std.debug.TTY.Color;
 pub const Console = struct {
     const Self = @This();
 
+    pub const ColorConfig = enum {
+        on,
+        off,
+        auto
+    };
+
     // Writers
     debug_writer: ?std.fs.File.Writer = null,
     std_writer: ?std.fs.File.Writer = null,
@@ -15,18 +21,23 @@ pub const Console = struct {
 
     pub fn initNull() Self {
         return Self {
-            .ttyconf = std.debug.detectTTYConfig(),
+            .ttyconf = Console.colorConfig(.off),
         };
     }
 
-    pub fn init(args: struct {std_writer: ?std.fs.File.Writer, error_writer: ?std.fs.File.Writer, verbose_writer: ?std.fs.File.Writer, debug_writer: ?std.fs.File.Writer}) Self {
+    pub fn init(args: struct {
+        std_writer: ?std.fs.File.Writer,
+        error_writer: ?std.fs.File.Writer,
+        verbose_writer: ?std.fs.File.Writer,
+        debug_writer: ?std.fs.File.Writer,
+        colors: ColorConfig}) Self {
         // TODO: Pass in config to determine if we shall use color codes or not
         return Self {
             .debug_writer = args.debug_writer,
             .std_writer = args.std_writer,
             .error_writer = args.error_writer,
             .verbose_writer = args.verbose_writer,
-            .ttyconf = std.debug.detectTTYConfig(),
+            .ttyconf = Console.colorConfig(args.colors),
         };
     }
 
@@ -37,6 +48,14 @@ pub const Console = struct {
             .error_writer = writer,
             .verbose_writer = writer,
             .ttyconf = std.debug.detectTTYConfig(),
+        };
+    }
+
+    fn colorConfig(value: ColorConfig) std.debug.TTY.Config {
+        return switch(value) {
+            .on => .escape_codes,
+            .off => .no_color,
+            .auto => std.debug.detectTTYConfig()
         };
     }
 
@@ -70,11 +89,11 @@ pub const Console = struct {
         self.out(self.error_writer, null, fmt, args);
     }
 
-
     pub fn errorColored(self: *const Self, color: Color, comptime fmt:[]const u8, args: anytype) void {
         self.out(self.error_writer, color, fmt, args);        
     }
 
+    // TBD: What's the use case for "debug"?
     pub fn debugPrint(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
         self.out(self.debug_writer, null, fmt, args);
     }

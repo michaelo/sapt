@@ -6,10 +6,13 @@ const main = @import("main.zig");
 const utils = @import("utils.zig");
 const config = @import("config.zig");
 const kvstore = @import("kvstore.zig");
+const Console = @import("console.zig").Console;
 
 pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
 
 pub const AppArguments = struct {
+    //--colors
+    colors: Console.ColorConfig = .auto,
     //--verbose,-v
     verbose: bool = false,
     //--verbose-curl TODO: Rename to --verbose-http / --verbose-request ?
@@ -63,6 +66,7 @@ pub fn printHelp(full: bool) void {
         \\  {0s} -i=generaldefs/.env testsuite01/
         \\
         \\Arguments:
+        \\      --colors=auto|on|off Set wether to attempt to use colored output or not
         \\      --delay=NN          Delay execution of each consecutive step with NN ms
         \\  -e, --early-quit        Abort upon first non-successful test
         \\  -h, --help              Show this help and exit
@@ -256,6 +260,12 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
             continue;
         }
 
+        if(argHasValue(arg, "--colors", null)) |value| {
+            result.colors = std.meta.stringToEnum(Console.ColorConfig, value) orelse return error.InvalidArgument;
+            continue;
+        }
+
+
         if(maybe_variables) |variables| if(std.mem.startsWith(u8, arg, "-D")) {
             // Found variable-entry
             try variables.addFromBuffer(arg[2..], .KeepFirst);
@@ -271,6 +281,35 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
     }
 
     return result;
+}
+
+test "parseArgs colors" {
+    // Default
+    {
+        var myargs = [_][]const u8{"dummyarg"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.auto, parsed_args.colors);
+    }
+    // Checking all alternatives
+    {
+        var myargs = [_][]const u8{"--colors=auto"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.auto, parsed_args.colors);
+    }
+    {
+        var myargs = [_][]const u8{"--colors=on"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.on, parsed_args.colors);
+    }
+    {
+        var myargs = [_][]const u8{"--colors=off"};
+        var parsed_args = try parseArgs(myargs[0..], null);
+        try testing.expectEqual(Console.ColorConfig.off, parsed_args.colors);
+    }
+    {
+        var myargs = [_][]const u8{"--colors=blah"};
+        try testing.expectError(error.InvalidArgument, parseArgs(myargs[0..], null));
+    }
 }
 
 test "parseArgs verbosity" {

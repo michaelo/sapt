@@ -608,6 +608,7 @@ pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!Exe
         .debug_writer = stdout,
         .verbose_writer = if(!parsed_args.verbose) null else stdout,
         .error_writer = if(!parsed_args.silent) stderr else null,
+        .colors = parsed_args.colors,
     });
 
     var app_ctx = try AppContext.create(allocator, console);
