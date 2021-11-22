@@ -55,35 +55,37 @@ pub fn printHelp(full: bool) void {
     }
     
     debug(
-        \\{0s} api_is_healthy.pi
-        \\{0s} testsuite01/
-        \\{0s} -b=myplaybook.book
-//        \\{0s} -p=myplaybook.book -s -o=output.log
-        \\{0s} -i=generaldefs/.env testsuite01/
+        \\Examples:
+        \\  {0s} api_is_healthy.pi
+        \\  {0s} testsuite01/
+        \\  {0s} -b=myplaybook.book
+//        \\  {0s} -p=myplaybook.book -s -o=output.log
+        \\  {0s} -i=generaldefs/.env testsuite01/
         \\
-        \\Arguments
-        \\  -h, --help          Show this help and exit
-        \\      --help-format   Show details regarding file formats and exit
-        \\      --version       Show version and exit
-        \\  -s, --silent        Silent. Suppresses output. Overrules verbose.
-        \\  -v, --verbose       Verbose output
-        \\      --verbose-curl  Verbose output from libcurl
-        \\  -d, --show-response Show response data. Even if -s.
-        \\      --delay=NN      Delay execution of each consecutive step with NN ms
-        \\  -e, --early-quit    Abort upon first non-successful test
-        \\  -p, --pretty        Try to format response data based on Content-Type.
-        \\                      Naive support for JSON, XML and HTML
-        \\  -m, --multithread   Activates multithreading - relevant for repeated tests
-        \\                      via playbooks
-        \\      --insecure      Don't verify SSL certificates
-        \\  -i=file, --initial-vars=file
-        \\                      Provide file with variable-definitions made available to
-        \\                      all tests
-        \\  -b=file, --playbook=file
-        \\                      Read tests to perform from playbook-file -- if set,
-        \\                      ignores other tests passed as arguments
-        \\  -DKEY=VALUE         Define variable, similar to .env-files. Can be set
-        \\                      multiple times
+        \\Arguments:
+        \\      --delay=NN          Delay execution of each consecutive step with NN ms
+        \\  -e, --early-quit        Abort upon first non-successful test
+        \\  -h, --help              Show this help and exit
+        \\      --help-format       Show details regarding file formats and exit
+        \\  -i=file,
+        \\      --initial-vars=file Provide file with variable-definitions made available
+        \\                          to all tests
+        \\      --insecure          Don't verify SSL certificates
+        \\  -m, --multithread       Activates multithreading - relevant for repeated
+        \\                          tests via playbooks
+        \\  -p, --pretty            Try to format response data based on Content-Type.
+        \\                          Naive support for JSON, XML and HTML
+        \\  -b=file,
+        \\      --playbook=file     Read tests to perform from playbook-file -- if set,
+        \\                          ignores other tests passed as arguments
+        \\  -d, --show-response     Show response data. Even if -s.
+        \\  -s, --silent            Silent. Suppresses output. Overrules verbose.
+        \\  -v, --verbose           Verbose output
+        \\      --verbose-curl      Verbose output from libcurl
+        \\      --version           Show version and exit
+        \\
+        \\  -DKEY=VALUE             Define variable, similar to .env-files. Can be set
+        \\                          multiple times
         \\
     , .{config.APP_NAME});
 }

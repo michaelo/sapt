@@ -441,17 +441,14 @@ TODO, somewhat ordered:
 * Provide better stats for repeats. We currently have min, max and avg/mean time. Could median or something mode-like be as useful or more? A plot would be nice here.
     * Also ensure that total time for entire test set also prints the accumulated value of each step without the delay set by --delay
 * Describe/explore how/if --delay shall affect playbooks. Currently: it doesn't. Playbooks should be self-contained, so we'd need an in-playbook variant of the functionality
-* Add argument to abort on first error? E.g. if auth fails, there's no need to continue with the regular requests.
-* TBD: Allow extraction-entries to also extract from headers? E.g. for Set-Cookie or other custom header-based-responses?
 * Implement support to do step-by-step tests by e.g. requiring user to press enter between each test?
 * Store responses? E.g. 'sapt mysuite/ --store-responses=./out/' creates ./out/mysuite/01-test1.pi.out etc
 * Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
 * Test/verify safety of string lengths: parsing
 * Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
-* TBD: Shall we support "repeats" in test-files as well? Not only playbooks.
+* TBD: Shall we support "repeats" in test-files as well, not only in playbooks?
 * Actively limit the set of protocols we allow. We currently just forward the URL however it is to CURL. If we staticly link, build a custom variant with only the feature set we need.
-* Support HTTP follow? Not now - we want explicit tests.
 * Finish basic syntax highligh ruleset for the test-files
 * Dev: Test feature flags based on comptime-parsing a feature-file
 
