@@ -8,8 +8,8 @@ const cURL = @cImport({
     @cInclude("curl/curl.h");
 });
 
-fn writeToArrayListCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
-    var buffer = @intToPtr(*std.ArrayList(u8), @ptrToInt(user_data));
+fn writeToBoundedArrayCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
+    var buffer = @intToPtr(*std.BoundedArray(u8, 1024*1024), @ptrToInt(user_data));
     var typed_data = @intToPtr([*]u8, @ptrToInt(data));
     buffer.appendSlice(typed_data[0 .. nmemb * size]) catch return 0;
     return nmemb * size;
@@ -35,22 +35,13 @@ pub const ProcessArgs = struct {
 
 /// Primary worker function performing the request and handling the response
 pub fn processEntry(entry: *types.Entry, args: ProcessArgs, result: *types.EntryResult) !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    defer arena.deinit();
-    var allocator = &arena.allocator;
+    if(is_inited) return error.NotInited;
 
     //////////////////////////////
     // Init / generic setup
     //////////////////////////////
     const handle = cURL.curl_easy_init() orelse return error.CURLHandleInitFailed;
     defer cURL.curl_easy_cleanup(handle);
-
-    // TODO: Shall we get rid of heap? Can use the 1MB-buffer in the entry directly...
-    var response_header_buffer = std.ArrayList(u8).init(allocator);
-    defer response_header_buffer.deinit();
-
-    var response_content_buffer = std.ArrayList(u8).init(allocator);
-    defer response_content_buffer.deinit();
 
     ///////////////////////
     // Setup curl options
@@ -106,12 +97,15 @@ pub fn processEntry(entry: *types.Entry, args: ProcessArgs, result: *types.Entry
     //////////////////////
     // Execute
     //////////////////////
+    try result.response_first_1mb.resize(0);
+    try result.response_headers_first_1mb.resize(0);
+
     // set write function callbacks
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToArrayListCallback) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToBoundedArrayCallback) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_HEADERDATA, &response_header_buffer) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_HEADERDATA, &result.response_headers_first_1mb) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;    
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_content_buffer) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &result.response_first_1mb) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
 
     // TODO: This is the critical part to time
@@ -139,13 +133,6 @@ pub fn processEntry(entry: *types.Entry, args: ProcessArgs, result: *types.Entry
         var content_type_slice = try std.fmt.bufPrint(&result.response_content_type.buffer, "{s}", .{content_type_ptr});
         try result.response_content_type.resize(content_type_slice.len);
     }
-
-    try result.response_first_1mb.resize(0);
-    try result.response_first_1mb.appendSlice(utils.sliceUpTo(u8, response_content_buffer.items, 0, result.response_first_1mb.capacity()));
-
-    try result.response_headers_first_1mb.resize(0);
-    try result.response_headers_first_1mb.appendSlice(utils.sliceUpTo(u8, response_header_buffer.items, 0, result.response_headers_first_1mb.capacity()));
-    
 }
 
 pub fn httpCodeToString(code: u64) []const u8 {

@@ -2,15 +2,15 @@ const std = @import("std");
 const debug = std.debug.print;
 const Mutex = std.Thread.Mutex;
 const testing = std.testing;
-// Functionality to run a thread pool of n Threads with a list of tasks to be executed stored as function + workload.
-// Solution will then spin up n threads, each thread checks for next available entry in the list, locks while copying out the task, then unlocks for any other thread to get started.
-// If list is empty, finish thread
-//
-// This is currently just an excercise in getting to know zig. It should most likely be replaced by something like this:
-// https://zig.news/kprotty/resource-efficient-thread-pools-with-zig-3291
-//
-// This is a simple variant which takes a predefined common function to activate for all work-items
-// Requirement: Set up from single thread, no modifications after start()
+/// Functionality to run a thread pool of n Threads with a list of tasks to be executed stored as function + workload.
+/// Solution will then spin up n threads, each thread checks for next available entry in the list, locks while copying out the task, then unlocks for any other thread to get started.
+/// If list is empty, finish thread
+///
+/// This is currently just an excercise in getting to know zig. It should most likely be replaced by something like this:
+/// https://zig.news/kprotty/resource-efficient-thread-pools-with-zig-3291
+///
+/// This is a simple variant which takes a predefined common function to activate for all work-items
+/// Requirement: Set up from single thread, no modifications after start()
 pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, worker_function: fn (*PayloadType) void) type {
     const MAX_NUM_THREADS = 128;
     const ThreadPoolState = enum {
@@ -83,15 +83,17 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
             }
         }
 
+        /// Once all work is set up: call this to spawn all threads and get to work
         pub fn start(self: *Self) !void {
             // Fill up thread pool, with .worker() 
             var t_id:usize = 0;
-            // debug("{s} vs {s}\n", .{@TypeOf(self.worker), @TypeOf(ThreadPool(4, MyPayload, 100, MyPayload.worker){})});
+            // TBD: What if only some threads are spawned?
             while(t_id < self.num_threads) : (t_id += 1) {
                 self.thread_pool[t_id] = try std.Thread.spawn(.{}, Self.worker, .{self});
             }
         }
 
+        /// Join on all threads of pool
         pub fn join(self: *Self) void {
             // Wait for all to finish
             var t_id:usize = 0;
@@ -100,11 +102,13 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
             }
         }
 
+        /// Convenience-function identical to .start() and .join()
         pub fn startAndJoin(self: *Self) !void {
             try self.start();
             self.join();
         }
 
+        /// Main creator-function (some would even call it... constructor)
         pub fn init(wanted_num_threads: usize) Self {
             return Self{
                 .num_threads = wanted_num_threads,
@@ -112,7 +116,6 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
         }
     };
 }
-
 
 test "threadpool basic implementation" {
     const MyPayloadResult = struct {
