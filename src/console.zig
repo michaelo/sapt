@@ -31,7 +31,6 @@ pub const Console = struct {
         verbose_writer: ?std.fs.File.Writer,
         debug_writer: ?std.fs.File.Writer,
         colors: ColorConfig}) Self {
-        // TODO: Pass in config to determine if we shall use color codes or not
         return Self {
             .debug_writer = args.debug_writer,
             .std_writer = args.std_writer,
@@ -71,7 +70,6 @@ pub const Console = struct {
         }
     }
 
-    // TODO: std/error/verbose/debug + Print/Reset/Color()
     pub fn stdPrint(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
         self.out(self.std_writer, null, fmt, args);
     }

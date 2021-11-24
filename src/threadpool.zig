@@ -79,7 +79,6 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
                 // End critical section
 
                // Call worker_function with workload
-               // TODO: Pass a struct to store results in as well? Otherwise we'll have to keep all input-data to be able to evaluate results
                self.function(&work);
             }
         }

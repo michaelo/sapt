@@ -1,7 +1,38 @@
+/// Common type definitions that's applicable cross-concern
 const std = @import("std");
 const testing = std.testing;
 const utils = @import("utils.zig");
+const config = @import("config.zig");
 const initBoundedArray = utils.initBoundedArray;
+
+/// The main definition of a test to perform
+pub const Entry = struct {
+    name: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
+    method: HttpMethod = undefined,
+    url: std.BoundedArray(u8, config.MAX_URL_LEN) = initBoundedArray(u8, config.MAX_URL_LEN),
+    headers: std.BoundedArray(HttpHeader, 32) = initBoundedArray(HttpHeader, 32),
+    payload: std.BoundedArray(u8, config.MAX_PAYLOAD_SIZE) = initBoundedArray(u8, config.MAX_PAYLOAD_SIZE),
+    expected_http_code: u64 = 0, // 0 == don't care
+    expected_response_substring: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
+    extraction_entries: std.BoundedArray(ExtractionEntry, 32) = initBoundedArray(ExtractionEntry, 32),
+    repeats: usize = 1,
+};
+
+/// Container for the results after executing an Entry
+pub const EntryResult = struct {
+    num_fails: usize = 0, // Will increase for each failed attempt, relates to "repeats"
+    conclusion: bool = false,
+    response_content_type: std.BoundedArray(u8, HttpHeader.MAX_VALUE_LEN) = initBoundedArray(u8, HttpHeader.MAX_VALUE_LEN),
+    response_http_code: u64 = 0,
+    response_match: bool = false,
+    // TODO: Fetch response-length in case it's >1MB?
+    response_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
+    response_headers_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
+};
+
+
+pub const TestContext = struct { entry: Entry = .{}, result: EntryResult = .{} };
+
 
 pub const HttpMethod = enum {
     CONNECT,

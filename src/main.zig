@@ -11,6 +11,7 @@ pub const log_level: std.log.Level = .debug;
 // application-specific imports
 const argparse = @import("argparse.zig");
 const config = @import("config.zig");
+const Console = @import("console.zig").Console;
 const httpclient = @import("httpclient.zig");
 const io = @import("io.zig");
 const kvstore = @import("kvstore.zig");
@@ -20,38 +21,25 @@ const threadpool = @import("threadpool.zig");
 const types = @import("types.zig");
 const utils = @import("utils.zig");
 
-const Console = @import("console.zig").Console;
-
+const Entry = types.Entry;
+const EntryResult = types.EntryResult;
+const TestContext = types.TestContext;
 const HttpMethod = types.HttpMethod;
 const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
 const AppArguments = argparse.AppArguments;
 
-// To be replacable, e.g. for tests
+// To be replacable, e.g. for tests. TODO: Make argument to AppContext
 pub var httpClientProcessEntry: fn (*Entry, httpclient.ProcessArgs, *EntryResult) anyerror!void = undefined;
 
 const initBoundedArray = utils.initBoundedArray;
-
 
 pub const errors = error{
     Ok,
     ParseError,
     TestFailed,
     TestsFailed,
-
-    // TODO: Make parse errors specific by parser.zig?
-    ParseErrorInputSection,
-    ParseErrorOutputSection,
-    ParseErrorHeaderEntry,
-    ParseErrorExtractionEntry,
-    ParseErrorInputPayload,
-    ParseErrorInputSectionNoSuchMethod,
-    ParseErrorInputSectionUrlTooLong,
-
-    NoSuchFunction,
-    BufferTooSmall,
 };
-
 
 const ExitCode = enum(u8) {
     Ok = 0,
@@ -68,30 +56,6 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     exit(.ProcessError);
 }
 
-pub const Entry = struct {
-    name: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
-    method: HttpMethod = undefined,
-    url: std.BoundedArray(u8, config.MAX_URL_LEN) = initBoundedArray(u8, config.MAX_URL_LEN),
-    headers: std.BoundedArray(HttpHeader, 32) = initBoundedArray(HttpHeader, 32),
-    payload: std.BoundedArray(u8, config.MAX_PAYLOAD_SIZE) = initBoundedArray(u8, config.MAX_PAYLOAD_SIZE),
-    expected_http_code: u64 = 0, // 0 == don't care
-    expected_response_substring: std.BoundedArray(u8, 1024) = initBoundedArray(u8, 1024),
-    extraction_entries: std.BoundedArray(ExtractionEntry, 32) = initBoundedArray(ExtractionEntry, 32),
-    repeats: usize = 1,
-};
-
-// TODO: Split what is return-data from the processEntry vs what's aggregated results outside?
-pub const EntryResult = struct {
-    num_fails: usize = 0, // Will increase for each failed attempt, relates to "repeats"
-    conclusion: bool = false,
-    response_content_type: std.BoundedArray(u8, HttpHeader.MAX_VALUE_LEN) = initBoundedArray(u8, HttpHeader.MAX_VALUE_LEN),
-    response_http_code: u64 = 0,
-    response_match: bool = false,
-    // TODO: Fetch response-length in case it's >1MB?
-    response_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
-    response_headers_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
-};
-
 const ProcessStatistics = struct {
     time_total: i64 = 0,
     time_min: i64 = undefined,
@@ -99,16 +63,110 @@ const ProcessStatistics = struct {
     time_avg: i64 = undefined,
 };
 
-const TestContext = struct { entry: Entry = .{}, result: EntryResult = .{} };
-
 const ExecutionStats = struct {
     num_tests: u64 = 0,
     num_success: u64 = 0,
     num_fail: u64 = 0,
 };
 
-// TODO: Put arguments and test-context in here as well?
-// TODO: Make this contain all the context-aware functions?
+/// Main CLI entry point. Mainly responsible for wrapping mainInner()
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
+    defer arena.deinit();
+    const aa = &arena.allocator;
+
+    const args = try std.process.argsAlloc(aa);
+    defer std.process.argsFree(aa, args);
+
+    if (args.len == 1) {
+        argparse.printHelp(false);
+        std.process.exit(0);
+    }
+    
+    // Set up default handler to process requests
+    httpClientProcessEntry = httpclient.processEntry;
+
+    var stats = mainInner(aa, args[1..]) catch |e| {
+        fatal("Exited due to failure: {s}\n", .{e});
+    };
+
+    if (stats.num_fail > 0) {
+        exit(.TestsFailed);
+    }
+
+    exit(.Ok);
+}
+
+/// Main functional starting point - move to AppContext?
+pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!ExecutionStats {
+    try httpclient.init();
+    defer httpclient.deinit();
+
+    // Shared variable-buffer between .env-files and -D-arguments
+    var input_vars = kvstore.KvStore{};
+    // Parse arguments / show help
+    var parsed_args = argparse.parseArgs(args, &input_vars) catch |e| switch (e) {
+        error.OkExit => {
+            return ExecutionStats{};
+        },
+        else => {
+            std.debug.print("Invalid arguments.\n", .{});
+            argparse.printHelp(true);
+            fatal("Exiting.", .{});
+        },
+    };
+
+    // Scrap-buffer to use throughout tests
+    var test_ctx = try allocator.create(TestContext);
+    defer allocator.destroy(test_ctx);
+
+    // "Global" definitions to be used by main parts of application
+    var stdout = std.io.getStdOut().writer();
+    var stderr = std.io.getStdErr().writer();
+
+    const console = Console.init(.{
+        .std_writer = if(!parsed_args.silent) stdout else null,
+        .debug_writer = stdout,
+        .verbose_writer = if(!parsed_args.verbose) null else stdout,
+        .error_writer = if(!parsed_args.silent) stderr else null,
+        .colors = parsed_args.colors,
+    });
+
+    var app_ctx = try AppContext.create(allocator, console);
+    defer app_ctx.destroy();
+
+    // Expand files e.g. if folders are passed
+    console.verbosePrint("Processing input file arguments\n", .{});
+
+    argparse.processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
+        fatal("Could not process input file arguments: {s}\n", .{e});
+    };
+
+    if (parsed_args.input_vars_file.constSlice().len > 0) {
+        console.verbosePrint("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
+        input_vars = try app_ctx.envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
+    }
+
+    var extracted_vars = kvstore.KvStore{};
+    var stats = ExecutionStats{};
+    if (parsed_args.playbook_file.constSlice().len > 0) {
+        // Process playbook
+        console.verbosePrint("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
+        stats = try app_ctx.processPlaybookFile(parsed_args.playbook_file.constSlice(), &parsed_args, &input_vars, &extracted_vars);
+    } else {
+        // Process regular list of entries
+        stats = try app_ctx.processTestlist(&parsed_args, &input_vars, &extracted_vars);
+    }
+
+    if(stats.num_fail > 0) {
+        console.errorPrint("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
+    }
+
+    return stats;
+}
+
+/// Main structure of the application
 pub const AppContext = struct {
     console: Console,
     parser: Parser,
@@ -116,6 +174,7 @@ pub const AppContext = struct {
     allocator: *std.mem.Allocator,
     // args: *argparse.AppArguments,
 
+    /// Att! Allocates memory for both self and .test_ctx. Can be freed with .destroy().
     pub fn create(allocator: *std.mem.Allocator, console: Console) !*AppContext {
         // Scrap-buffer to use throughout tests
         var test_ctx = try allocator.create(TestContext);
@@ -135,21 +194,10 @@ pub const AppContext = struct {
         return self;
     }
 
+    /// Free any allocated resources owned by this, including self.
     pub fn destroy(app_ctx: *AppContext) void {
         app_ctx.allocator.destroy(app_ctx.test_ctx);
         app_ctx.allocator.destroy(app_ctx);
-    }
-
-    fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
-        if (entry.expected_response_substring.constSlice().len > 0 and std.mem.indexOf(u8, result.response_first_1mb.constSlice(), entry.expected_response_substring.constSlice()) == null) {
-            result.response_match = false;
-            return false;
-        }
-        result.response_match = true;
-
-        if (entry.expected_http_code != 0 and entry.expected_http_code != result.response_http_code) return false;
-
-        return true;
     }
 
     // Process entry and evaluate results. Returns error-type in case of either parse error, process error or evaluation error
@@ -576,102 +624,21 @@ pub const AppContext = struct {
 };
 
 
-/// Main functional starting point - move to AppContext?
-pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!ExecutionStats {
-    try httpclient.init();
-    defer httpclient.deinit();
+// Standalone functions
 
-    // Shared variable-buffer between .env-files and -D-arguments
-    var input_vars = kvstore.KvStore{};
-    // Parse arguments / show help
-    var parsed_args = argparse.parseArgs(args, &input_vars) catch |e| switch (e) {
-        error.OkExit => {
-            return ExecutionStats{};
-        },
-        else => {
-            std.debug.print("Invalid arguments.\n", .{});
-            argparse.printHelp(true);
-            fatal("Exiting.", .{});
-        },
-    };
-
-    // Scrap-buffer to use throughout tests
-    var test_ctx = try allocator.create(TestContext);
-    defer allocator.destroy(test_ctx);
-
-    // "Global" definitions to be used by main parts of application
-    var stdout = std.io.getStdOut().writer();
-    var stderr = std.io.getStdErr().writer();
-
-    const console = Console.init(.{
-        .std_writer = if(!parsed_args.silent) stdout else null,
-        .debug_writer = stdout,
-        .verbose_writer = if(!parsed_args.verbose) null else stdout,
-        .error_writer = if(!parsed_args.silent) stderr else null,
-        .colors = parsed_args.colors,
-    });
-
-    var app_ctx = try AppContext.create(allocator, console);
-    defer app_ctx.destroy();
-
-    // Expand files e.g. if folders are passed
-    console.verbosePrint("Processing input file arguments\n", .{});
-
-    argparse.processInputFileArguments(parsed_args.files.buffer.len, &parsed_args.files) catch |e| {
-        fatal("Could not process input file arguments: {s}\n", .{e});
-    };
-
-    if (parsed_args.input_vars_file.constSlice().len > 0) {
-        console.verbosePrint("Attempting to read input variables from: {s}\n", .{parsed_args.input_vars_file.constSlice()});
-        input_vars = try app_ctx.envFileToKvStore(fs.cwd(), parsed_args.input_vars_file.constSlice());
+fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
+    if (entry.expected_response_substring.constSlice().len > 0 and std.mem.indexOf(u8, result.response_first_1mb.constSlice(), entry.expected_response_substring.constSlice()) == null) {
+        result.response_match = false;
+        return false;
     }
+    result.response_match = true;
 
-    var extracted_vars = kvstore.KvStore{};
-    var stats = ExecutionStats{};
-    if (parsed_args.playbook_file.constSlice().len > 0) {
-        // Process playbook
-        console.verbosePrint("Got playbook: {s}\n", .{parsed_args.playbook_file.constSlice()});
-        stats = try app_ctx.processPlaybookFile(parsed_args.playbook_file.constSlice(), &parsed_args, &input_vars, &extracted_vars);
-    } else {
-        // Process regular list of entries
-        stats = try app_ctx.processTestlist(&parsed_args, &input_vars, &extracted_vars);
-    }
+    if (entry.expected_http_code != 0 and entry.expected_http_code != result.response_http_code) return false;
 
-    if(stats.num_fail > 0) {
-        console.errorPrint("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
-    }
-
-    return stats;
+    return true;
 }
 
-/// Main CLI entry point. Mainly responsible for wrapping mainInner()
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 
-    defer arena.deinit();
-    const aa = &arena.allocator;
-
-    const args = try std.process.argsAlloc(aa);
-    defer std.process.argsFree(aa, args);
-
-    if (args.len == 1) {
-        argparse.printHelp(false);
-        std.process.exit(0);
-    }
-    
-    // Set up default handler to process requests
-    httpClientProcessEntry = httpclient.processEntry;
-
-    var stats = mainInner(aa, args[1..]) catch |e| {
-        fatal("Exited due to failure: {s}\n", .{e});
-    };
-
-    if (stats.num_fail > 0) {
-        exit(.TestsFailed);
-    }
-
-    exit(.Ok);
-}
 
 test "envFileToKvStore" {
     var app_ctx = try AppContext.create(std.testing.allocator, Console.initNull());

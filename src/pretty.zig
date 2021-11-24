@@ -34,7 +34,7 @@ test "getPrettyPrinterByContentType" {
 /// Writes a newline + a given number of spaces to ensure indendation
 fn nl(writer: Writer, num: i64) !void {
     var i = num;
-    // TODO: Support CRLF for Win?
+    // TBD: Support CRLF for Win?
     try writer.print("\n", .{});
     while (i > 0) : (i -= 1) try writer.print(" ", .{});
 }

@@ -1,5 +1,4 @@
 // Import all modules to be automatically tested
-// TODO: This can probably be generated compile-time
 test "link" {
     _ = @import("argparse.zig");
     _ = @import("config.zig");

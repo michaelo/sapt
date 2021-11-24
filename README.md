@@ -25,39 +25,41 @@ Running a single test:
 Help:
 
     % sapt -h
-    sapt v1.0.0-rc4 - Simple API Tester
+    sapt v1.0.0-rc5 - Simple API Tester
 
     Usage: sapt [arguments] [file1.pi file2.pi ... fileN.pi]
 
-    try 'sapt --help' for more information.
+    Examples:
+      sapt api_is_healthy.pi
+      sapt testsuite01/
+      sapt -b=myplaybook.book
+      sapt -i=generaldefs/.env testsuite01/
 
-    sapt api_is_healthy.pi
-    sapt testsuite01/
-    sapt -b=myplaybook.book
-    sapt -i=generaldefs/.env testsuite01/
-
-    Arguments
-    -h, --help          Show this help and exit
-        --help-format   Show details regarding file formats and exit
-        --version       Show version and exit
-    -v, --verbose       Verbose output
-        --verbose-curl  Verbose output from libcurl
-    -d, --show-response Show response data
-        --delay=NN      Delay execution of each consecutive step with NN ms
-    -e, --early-quit    Abort upon first non-successful test
-    -p, --pretty        Try to format response data based on Content-Type.
-                        Naive support for JSON, XML and HTML
-    -m, --multithread   Activates multithreading - relevant for repeated tests
-                        via playbooks
-        --insecure      Don't verify SSL certificates
-    -i=file, --initial-vars=file
-                        Provide file with variable-definitions made available to
-                        all tests
-    -b=file, --playbook=file
-                        Read tests to perform from playbook-file -- if set,
-                        ignores other tests passed as arguments
-    -DKEY=VALUE         Define variable, similar to .env-files. Can be set
-                        multiple times
+    Arguments:
+          --colors=auto|on|off Set wether to attempt to use colored output or not
+          --delay=NN          Delay execution of each consecutive step with NN ms
+      -e, --early-quit        Abort upon first non-successful test
+      -h, --help              Show this help and exit
+          --help-format       Show details regarding file formats and exit
+      -i=file,
+          --initial-vars=file Provide file with variable-definitions made available
+                              to all tests
+          --insecure          Don't verify SSL certificates
+      -m, --multithread       Activates multithreading - relevant for repeated
+                              tests via playbooks
+      -p, --pretty            Try to format response data based on Content-Type.
+                              Naive support for JSON, XML and HTML
+      -b=file,
+          --playbook=file     Read tests to perform from playbook-file -- if set,
+                              ignores other tests passed as arguments
+      -d, --show-response     Show response data. Even if -s.
+      -s, --silent            Silent. Suppresses output. Overrules verbose.
+      -v, --verbose           Verbose output
+          --verbose-curl      Verbose output from libcurl
+          --version           Show version and exit
+  
+      -DKEY=VALUE             Define variable, similar to .env-files. Can be set
+                              multiple times
 
 
 sapt can take multiple arguments, both files and folders. The entire input-set will be sorted alphanumerically, thus you can dictate the order of execution by making sure the names of the scripts reflects the order:
@@ -418,7 +420,6 @@ TODO, somewhat ordered:
 ------------
 *Att! The points here are not changes that we strictly commit to, but an organic list of things to consider. Higher up = more likely*
 
-* Implement flag --no-color + see if we can detect tty vs piped output re color-support
 * Separate automagic handling between .env-file explicitly and implicitly passed (through folder)? Explicit should perhaps ignore folder-rules? 
 * Determine if current solution where variables can't be overwritten is a good idea or not.
 * Libs/deps handling:
@@ -430,11 +431,11 @@ TODO, somewhat ordered:
     * Look into staticly linking all deps - the absolute best would be a single, self-contained executable
     * Get proper version-control of which dynamic libraries we depend on/provide.
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
-    * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows.
+    * Clean up lib-handling. Currently we e.g. have libcurl stored as libcurl.dll and curl.dll due to some linkage-discrepencies for Windows/vcpkg. Can we simply vendor it?
 * Append current git hash (short) for debug-builds. Need to figure out how to detect this at compile-time and inject it properly.
-* Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and unified.
+* Due to this being an explorative project while learning Zig, there are inconsistencies regarding memory-handling. This must be cleaned up and verified.
 * Code quality - especially in main.zig - is quite crap at this point.
-* More advanced sequence options:
+* More advanced sequence options?:
     * Specify setup/teardown-tests to be run before/after test/suite/playbook?
         * --suite-setup, --suite-teardown, --step-setup, --step-teardown?
         * What about playbooks?
@@ -447,7 +448,7 @@ TODO, somewhat ordered:
 * Playbooks:
     * TBD: What shall the semantics be regarding response data and variable-extraction when we have multiple repetitions? Makes no sense perhaps, so either have "last result matters", "undefined behaviour" or "unsupported". Wait for proper use cases.
 * Test/verify safety of string lengths: parsing
-* Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests
+* Support both keeping variables between (default) as well as explicitly allowing sandboxing (flag) of tests?
 * TBD: Shall we support "repeats" in test-files as well, not only in playbooks?
 * Actively limit the set of protocols we allow. We currently just forward the URL however it is to CURL. If we staticly link, build a custom variant with only the feature set we need.
 * Finish basic syntax highligh ruleset for the test-files

@@ -15,7 +15,7 @@ pub const AppArguments = struct {
     colors: Console.ColorConfig = .auto,
     //--verbose,-v
     verbose: bool = false,
-    //--verbose-curl TODO: Rename to --verbose-http / --verbose-request ?
+    //--verbose-curl
     verbose_curl: bool = false,
     //-s
     silent: bool = false,

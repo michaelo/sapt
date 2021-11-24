@@ -1,5 +1,4 @@
 const std = @import("std");
-const main = @import("main.zig");
 const types = @import("types.zig");
 const utils = @import("utils.zig");
 
@@ -35,7 +34,7 @@ pub const ProcessArgs = struct {
 };
 
 /// Primary worker function performing the request and handling the response
-pub fn processEntry(entry: *main.Entry, args: ProcessArgs, result: *main.EntryResult) !void {
+pub fn processEntry(entry: *types.Entry, args: ProcessArgs, result: *types.EntryResult) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     defer arena.deinit();
     var allocator = &arena.allocator;

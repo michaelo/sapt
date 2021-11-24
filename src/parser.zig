@@ -2,20 +2,31 @@ const std = @import("std");
 const debug = std.debug.print;
 const testing = std.testing;
 
-const main = @import("main.zig");
 const kvstore = @import("kvstore.zig");
 const io = @import("io.zig");
 const config = @import("config.zig");
 const utils = @import("utils.zig");
-const types = @import("types.zig");
 
-const errors = main.errors;
-const Entry = main.Entry;
+const types = @import("types.zig");
+const Entry = types.Entry;
 const HttpMethod = types.HttpMethod;
 const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
 
 const Console = @import("console.zig").Console;
+
+pub const errors = error{
+    ParseError,
+    InputSectionError,
+    OutputSectionError,
+    HeaderEntryError,
+    ExtractionEntryError,
+    InputPayloadError,
+    InputSectionNoSuchMethodError,
+    InputSectionUrlTooLongError,
+    BufferTooSmall,
+    NoSuchFunction,
+};
 
 pub const Parser = struct {
     const Self = @This();
@@ -59,19 +70,19 @@ pub const Parser = struct {
             fn parseInputSectionHeader(line: []const u8, _result: *Entry) !void {
                 var lit = std.mem.split(u8, line[0..], " ");
                 _ = lit.next(); // skip >
-                _result.method = HttpMethod.create(lit.next().?[0..]) catch return errors.ParseErrorInputSectionNoSuchMethod;
+                _result.method = HttpMethod.create(lit.next().?[0..]) catch return errors.InputSectionNoSuchMethodError;
                 const url = lit.next().?[0..];
-                _result.url.insertSlice(0, url) catch return errors.ParseErrorInputSectionUrlTooLong;
+                _result.url.insertSlice(0, url) catch return errors.InputSectionUrlTooLongError;
             }
 
             fn parseOutputSectionHeader(line: []const u8, _result: *Entry) !void {
                 var lit = std.mem.split(u8, line, " ");
                 _ = lit.next(); // skip <
                 if (lit.next()) |http_code| {
-                    _result.expected_http_code = std.fmt.parseInt(u64, http_code[0..], 10) catch return errors.ParseErrorOutputSection;
-                    _result.expected_response_substring.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.ParseErrorOutputSection;
+                    _result.expected_http_code = std.fmt.parseInt(u64, http_code[0..], 10) catch return errors.OutputSectionError;
+                    _result.expected_response_substring.insertSlice(0, std.mem.trim(u8, lit.rest()[0..], " ")) catch return errors.OutputSectionError;
                 } else {
-                    return errors.ParseErrorOutputSection;
+                    return errors.OutputSectionError;
                 }
             }
 
@@ -79,12 +90,12 @@ pub const Parser = struct {
                 var lit = std.mem.split(u8, line, ":");
                 if (lit.next()) |key| {
                     if (lit.next()) |value| {
-                        _result.headers.append(try HttpHeader.create(key, value)) catch return errors.ParseErrorHeaderEntry;
+                        _result.headers.append(try HttpHeader.create(key, value)) catch return errors.HeaderEntryError;
                     } else {
-                        return error.ParseErrorHeaderEntry;
+                        return error.HeaderEntryError;
                     }
                 } else {
-                    return error.ParseErrorHeaderEntry;
+                    return error.HeaderEntryError;
                 }
             }
 
@@ -92,18 +103,18 @@ pub const Parser = struct {
                 var lit = std.mem.split(u8, line, "=");
                 if (lit.next()) |key| {
                     if (lit.next()) |value| {
-                        _result.extraction_entries.append(try ExtractionEntry.create(key, value)) catch return errors.ParseErrorExtractionEntry;
+                        _result.extraction_entries.append(try ExtractionEntry.create(key, value)) catch return errors.ExtractionEntryError;
                     } else {
-                        return error.ParseErrorExtractionEntry;
+                        return error.ExtractionEntryError;
                     }
                 } else {
-                    return error.ParseErrorExtractionEntry;
+                    return error.ExtractionEntryError;
                 }
             }
 
             fn parseInputPayloadLine(line: []const u8, _result: *Entry) !void {
-                _result.payload.appendSlice(line) catch return errors.ParseErrorInputPayload; // .Overflow
-                _result.payload.append('\n') catch return errors.ParseErrorInputPayload; // .Overflow
+                _result.payload.appendSlice(line) catch return errors.InputPayloadError; // .Overflow
+                _result.payload.append('\n') catch return errors.InputPayloadError; // .Overflow
             }
         };
 
@@ -457,9 +468,8 @@ pub const Parser = struct {
                         } else {
                             // TODO: convert to line and col
                             // TODO: Print surrounding slice?
-                            // Not an error. E.g. for json-payloads... 
+                            // Att! Not an error. E.g. for json-payloads... 
                             debug("WARNING: Found close-brackets at idx={d} with none open\n", .{i});
-                            // return errors.ParseError;
                         }
                     }
                 },
@@ -469,7 +479,6 @@ pub const Parser = struct {
 
         if (opens.slice().len > 0) {
             for (opens.slice()) |idx| debug("WARNING: Brackets remaining open: idx={d}\n", .{idx});
-            // return errors.ParseError;
             // TODO: Print surrounding slice?
         }
 
@@ -647,7 +656,6 @@ pub const Parser = struct {
             if (pair.resolved) continue;
             var pair_len = pair.end - pair.start + 1;
             var key = buffer.slice()[pair.start + 2 .. pair.end - 1];
-            // debug("Checking for variable by key: {s}\n", .{key});
 
             // check if key is a variable (not function)
             if (!(std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null)) {
@@ -659,7 +667,6 @@ pub const Parser = struct {
                     };
                     pair.resolved = true;
 
-                    // for (pairs.slice()[i + 1 ..]) |*pair2| {
                     for (pairs.slice()[0..]) |*pair2| {
                         if (pair2.resolved) continue;// Since we no longer go exclusively by depth (we run this function multiple times with different sets), we have to check from start and filter out resolved instead
                         if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try addUnsignedSigned(u64, i64, pair2.start, end_delta);
@@ -703,8 +710,6 @@ pub const Parser = struct {
         try expandFunctions(str.buffer.len, MAX_VARIABLES, &str, &pairs);
         try testing.expect(std.mem.indexOf(u8, str.slice(), "{{myfunc") == null);
     }
-
-    // TODO: Add more stress-tests for advanced variable/function-substitution
 
     test "substitution advanced tests" {
         var str = try std.BoundedArray(u8, 1024).fromSlice(
