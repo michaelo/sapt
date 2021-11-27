@@ -1,5 +1,4 @@
 const std = @import("std");
-const debug = std.debug.print;
 const testing = std.testing;
 const fs = std.fs;
 const main = @import("main.zig");
@@ -9,6 +8,14 @@ const kvstore = @import("kvstore.zig");
 const Console = @import("console.zig").Console;
 
 pub const FilePathEntry = std.BoundedArray(u8, config.MAX_PATH_LEN);
+
+fn debug(comptime fmt: []const u8, args: anytype) void {
+    std.io.getStdOut().writer().print(fmt, args) catch return;
+}
+
+fn err(comptime fmt: []const u8, args: anytype) void {
+    std.io.getStdErr().writer().print(fmt, args) catch return;
+}
 
 pub const AppArguments = struct {
     //--colors
@@ -254,7 +261,7 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
 
         if(argHasValue(arg, "--delay", null)) |value| {
             result.delay = std.fmt.parseUnsigned(u64, value, 10) catch {
-                debug("WARNING: Could not parse value of {s} as a positive number\n", .{arg});
+                err("WARNING: Could not parse value of {s} as a positive number\n", .{arg});
                 return error.InvalidArgument;
             };
             continue;
@@ -271,6 +278,12 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
             try variables.addFromBuffer(arg[2..], .KeepFirst);
             continue;
         };
+
+        // Unhandled flag/arg?
+        if(std.mem.startsWith(u8, arg, "-")) {
+            err("ERROR: Unknown parameter '{s}'\n", .{arg});
+            return error.InvalidArgument;
+        }
 
         // Assume ordinary files
         result.files.append(FilePathEntry.fromSlice(arg) catch {
