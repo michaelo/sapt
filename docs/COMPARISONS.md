@@ -24,9 +24,8 @@ You should probably check all of these out if you haven't already. They are all 
 
 * No heavy UI or such (Postman idles at >300MB RAM vs max observed with sapt so far: 17MB) 
 * Postman is not usable from command line. You have newman, but it (AFAIK) requires you to first export the collections from Postman using their quite verbose .json-format
-* It's not immidiately intuitive knowing what Postman stores at their servers and not
+* It's not immediately intuitive knowing what Postman stores at their servers and not, especially with regards to variables
 * Postman has lots of more features and among other things better response visualisation
-
 
 ### Differences from cURL:
 
