@@ -1,7 +1,9 @@
-/// Basic writer supporting console-escape-codes for supported platforms
 const std = @import("std");
 pub const Color = std.debug.TTY.Color;
 
+/// Basic output-wrapper with console-escape-codes for supported platforms.
+/// Convenience-oriented with regards to enabling different levels of output
+/// API: <stream>Print(), <stream>Colored(), with <stream> being std, debug, error or verbose.
 pub const Console = struct {
     const Self = @This();
 
@@ -19,12 +21,14 @@ pub const Console = struct {
 
     ttyconf: std.debug.TTY.Config,
 
+    /// Returns a Console which suppresses all output
     pub fn initNull() Self {
         return Self {
             .ttyconf = Console.colorConfig(.off),
         };
     }
 
+    /// Main constructor. Takes optional writers. null == suppress.
     pub fn init(args: struct {
         std_writer: ?std.fs.File.Writer,
         error_writer: ?std.fs.File.Writer,
@@ -40,6 +44,7 @@ pub const Console = struct {
         };
     }
 
+    /// Basic constructor providing same writer for all output-types
     pub fn initSimple(writer: ?std.fs.File.Writer) Self {
         return Self {
             .debug_writer = writer,
@@ -58,6 +63,7 @@ pub const Console = struct {
         };
     }
 
+    /// Core output-function, utilized by all others.
     fn out(self: *const Self, maybe_writer: ?std.fs.File.Writer, maybe_color: ?Color, comptime fmt:[]const u8, args: anytype) void {
         if(maybe_writer == null) return;
         const writer = maybe_writer.?;
@@ -69,6 +75,10 @@ pub const Console = struct {
            self.ttyconf.setColor(writer, .Reset);
         }
     }
+
+    //////////////////////////////////////////////////////
+    // Print-functions
+    //////////////////////////////////////////////////////
 
     pub fn stdPrint(self: *const Self, comptime fmt:[]const u8, args: anytype) void {
         self.out(self.std_writer, null, fmt, args);

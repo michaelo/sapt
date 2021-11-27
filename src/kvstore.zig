@@ -7,14 +7,17 @@ const utils = @import("utils.zig");
 pub const MAX_KV_KEY_LEN = 128;
 pub const MAX_KV_VALUE_LEN = 8 * 1024;
 
-// TODO: Can make generic, especially with regards to capacity
-// pub fn KvStore(comptime KeyType: type, comptime )
-// Att! Highly inefficient
-// Possible parameters: max key size, max value size, max num variables
-// Current characteristics: ordered, write-once-pr-key store - you can't update existing entries. TODO: rename accordingly
-// Name suggestion: OrderedWoKvStore?
+/// TODO: Can make more generic, especially with regards to capacity and entry-lengths
+/// pub fn KvStore(comptime KeyType: type, comptime )
+/// Possible parameters: max key size, max value size, max num variables
+/// Current characteristics: ordered, write-once-pr-key store - you can't update existing entries.
+/// New name suggestion: OrderedWoKvStore?
+/// Att! Highly inefficient as of now
 pub const KvStore = struct {
     const Self = @This();
+
+    /// Strategy for when key already exists for insertion-actions
+    pub const CollisionStrategy = enum { KeepFirst, Fail };
 
     pub const KvStoreEntry = struct {
         key: std.BoundedArray(u8, MAX_KV_KEY_LEN) = utils.initBoundedArray(u8, MAX_KV_KEY_LEN),
@@ -29,6 +32,7 @@ pub const KvStore = struct {
 
     store: std.BoundedArray(KvStoreEntry, 32) = utils.initBoundedArray(KvStoreEntry, 32),
 
+    /// Insert new key/value. Key must not pre-exist.
     pub fn add(self: *Self, key: []const u8, value: []const u8) !void {
         if (try self.getIndexFor(key)) |i| {
             try self.store.insert(i, try KvStoreEntry.create(key, value));
@@ -38,8 +42,9 @@ pub const KvStore = struct {
         }
     }
 
-    // Find point to insert new key to keep list sorted, or null if it must be appended to end
-    pub fn getIndexFor(self: *Self, key: []const u8) !?usize {
+    /// Find point to insert new key to keep list sorted, or null if it must be appended to end.
+    /// Returns error if key is already used.
+    fn getIndexFor(self: *Self, key: []const u8) !?usize {
         // Will find point to insert new key to keep list sorted
         if (self.count() == 0) return null;
 
@@ -59,6 +64,7 @@ pub const KvStore = struct {
         return null; // This means end, and thus an append must be done
     }
 
+    /// Retrieve value for a given key, or null if key not used.
     pub fn get(self: *Self, key: []const u8) ?[]const u8 {
         // TODO: binary search
         for (self.store.slice()) |entry| {
@@ -70,14 +76,17 @@ pub const KvStore = struct {
         return null;
     }
 
+    /// Returns number of entries in store
     pub fn count(self: *Self) usize {
         return self.store.slice().len;
     }
 
+    /// Returns the slice of keyvalue-entries
     pub fn slice(self: *Self) []KvStoreEntry {
         return self.store.slice();
     }
 
+    /// Creates a kvstored based on buffer with lines of 'key=value'-pairs
     pub fn fromBuffer(buf: []const u8) !KvStore {
         var store = KvStore{};
         var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
@@ -94,6 +103,7 @@ pub const KvStore = struct {
         return store;
     }
 
+    /// Adds entries to current kvstore based on buffer with lines of 'key=value'-pairs
     pub fn addFromBuffer(self: *Self, buf: []const u8, collision_handling: CollisionStrategy) !void {
         var line_it = std.mem.split(u8, buf, io.getLineEnding(buf));
         while (line_it.next()) |line| {
@@ -114,8 +124,7 @@ pub const KvStore = struct {
         }
     }
 
-    pub const CollisionStrategy = enum { KeepFirst, Fail };
-
+    /// Add all entries from another kvstore into this
     pub fn addFromOther(self: *Self, other: KvStore, collision_handling: CollisionStrategy) !void {
         for (other.store.constSlice()) |entry| {
             self.add(entry.key.constSlice(), entry.value.constSlice()) catch |e| switch (e) {

@@ -29,6 +29,8 @@ const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
 const AppArguments = argparse.AppArguments;
 
+const expressionExtractor = @import("parser_expressions.zig").expressionExtractor;
+
 // To be replacable, e.g. for tests. TODO: Make argument to AppContext
 pub var httpClientProcessEntry: fn (*Entry, httpclient.ProcessArgs, *EntryResult) anyerror!void = undefined;
 
@@ -295,10 +297,10 @@ pub const AppContext = struct {
     fn extractExtractionEntries(app_ctx: *AppContext, entry: Entry, result: EntryResult, store: *kvstore.KvStore) !void {
         // Extract to variables
         for (entry.extraction_entries.constSlice()) |v| {
-            if (Parser.expressionExtractor(result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
+            if (expressionExtractor(result.response_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
                 // Got match in response body
                 try store.add(v.name.constSlice(), expression_result.result);
-            } else if (Parser.expressionExtractor(result.response_headers_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
+            } else if (expressionExtractor(result.response_headers_first_1mb.constSlice(), v.expression.constSlice())) |expression_result| {
                 // Got match in response headers
                 try store.add(v.name.constSlice(), expression_result.result);
             } else {
