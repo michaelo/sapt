@@ -15,7 +15,7 @@ pub fn expressionExtractor(buf: []const u8, pattern: []const u8) ?ExpressionMatc
         var end_slice = pattern[pos + 2 ..];
 
         var start_pos = std.mem.indexOf(u8, buf, start_slice) orelse return null;
-        var end_pos = std.mem.indexOfPos(u8, buf, start_pos + start_slice.len, end_slice) orelse return null;
+        var end_pos = if(end_slice.len == 0) buf.len else std.mem.indexOfPos(u8, buf, start_pos + start_slice.len, end_slice) orelse return null;
 
         // If no end-match, assume end of line...
         // This might come back to bite me, but it's as good as anything right now without particular usecases
@@ -48,5 +48,5 @@ test "expressionExtractor" {
     try testing.expectEqualStrings("match", expressionExtractor("match", "atc").?.result);
     try testing.expectEqualStrings("atc", expressionExtractor("match", "m()h").?.result);
     try testing.expectEqualStrings("123123", expressionExtractor("idtoken=123123", "token=()").?.result);
-    try testing.expectEqualStrings("123123", expressionExtractor("123123=idtoken", "()=id").?.result);
+    try testing.expectEqualStrings("idtoken", expressionExtractor("idtoken=123123", "()=12").?.result);
 }
