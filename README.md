@@ -25,44 +25,44 @@ Running a single test:
 Help:
 
     % sapt -h
-    sapt v1.0.0-rc5 - Simple API Tester
+    sapt v1.0.0-rc6 - Simple API Tester
 
     Usage: sapt [arguments] [file1.pi file2.pi ... fileN.pi]
 
     Examples:
-      sapt api_is_healthy.pi
-      sapt testsuite01/
-      sapt -b=myplaybook.book
-      sapt -i=generaldefs/.env testsuite01/
+    sapt api_is_healthy.pi
+    sapt testsuite01/
+    sapt -b=myplaybook.book
+    sapt -i=generaldefs/.env testsuite01/
 
     Arguments:
-          --colors=auto|on|off Set wether to attempt to use colored output or not
-          --delay=NN          Delay execution of each consecutive step with NN ms
-      -e, --early-quit        Abort upon first non-successful test
-      -h, --help              Show this help and exit
-          --help-format       Show details regarding file formats and exit
-      -i=file,
-          --initial-vars=file Provide file with variable-definitions made available
-                              to all tests
-          --insecure          Don't verify SSL certificates
-      -m, --multithread       Activates multithreading - relevant for repeated
-                              tests via playbooks
-      -p, --pretty            Try to format response data based on Content-Type.
-                              Naive support for JSON, XML and HTML
-      -b=file,
-          --playbook=file     Read tests to perform from playbook-file -- if set,
-                              ignores other tests passed as arguments
-      -d, --show-response     Show response data. Even if -s.
-      -s, --silent            Silent. Suppresses output. Overrules verbose.
-      -v, --verbose           Verbose output
-          --verbose-curl      Verbose output from libcurl
-          --version           Show version and exit
-  
-      -DKEY=VALUE             Define variable, similar to .env-files. Can be set
-                              multiple times
+        --colors=auto|on|off Set wether to attempt to use colored output or not
+        --delay=NN          Delay execution of each consecutive step with NN ms
+    -e, --early-quit        Abort upon first non-successful test
+    -h, --help              Show this help and exit
+        --help-format       Show details regarding file formats and exit
+    -i=file,
+        --initial-vars=file Provide file with variable-definitions made available
+                            to all tests
+        --insecure          Don't verify SSL certificates
+    -m, --multithread       Activates multithreading - relevant for repeated
+                            tests via playbooks
+    -p, --pretty            Try to format response data based on Content-Type.
+                            Naive support for JSON, XML and HTML
+    -b=file,
+        --playbook=file     Read tests to perform from playbook-file -- if set,
+                            ignores other tests passed as arguments
+    -d, --show-response     Show response data. Even if -s.
+    -s, --silent            Silent. Suppresses output. Overrules verbose.
+    -v, --verbose           Verbose output
+        --verbose-curl      Verbose output from libcurl
+        --version           Show version and exit
+
+    -DKEY=VALUE             Define variable, similar to .env-files. Can be set
+                            multiple times
 
 
-sapt can take multiple arguments, both files and folders. The entire input-set will be sorted alphanumerically, thus you can dictate the order of execution by making sure the names of the scripts reflects the order:
+sapt can take multiple arguments, both files and folders. The entire input-set will be sorted alphanumerically when passing a folder, thus you can dictate the order of execution by making sure the names of the scripts reflects the order:
 
 * suite/01-auth.pi
 * suite/02-post-entry.pi
@@ -93,7 +93,7 @@ Why oh why
     You: Go on...
 
     Me: sapt is a lightweight tool, both with regards to runtime requirements,
-        as well as its' feature set. It also provides you with full control of
+        as well as its feature set. It also provides you with full control of
         your own data. See "Design goals" further down, or
         "docs/COMPARISONS.md" to see what sapt focuses on. 
 
@@ -426,8 +426,7 @@ TODO, somewhat ordered:
     * Credits: Determine all deps we need to ship.
         * libcurl for all platforms - license added to CREDITS
         * zlib for Windows - license added to CREDITS
-        * OpenSSL?
-    * Rename "CREDITS" to "OPENSOURCE_ATTRIBUTIONS" or something along that line? What's standard out there?
+        * OpenSSL? Other curl-deps?
     * Look into staticly linking all deps - the absolute best would be a single, self-contained executable
     * Get proper version-control of which dynamic libraries we depend on/provide.
 * Dev: Set up automatic builds/cross-builds for Win10 x64, Linux x64, macOS (x64 and Arm)
@@ -469,3 +468,5 @@ Thanks / attributions:
 --------
 * zig - an interesting language of which this project is my first deliverable
 * libcurl - the workhorse
+
+*See ATTRIBUTIONS.md for licenses.*

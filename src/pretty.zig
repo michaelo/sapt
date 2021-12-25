@@ -93,7 +93,7 @@ fn passthrough(writer: Writer, data: []const u8) anyerror!void {
 
 /// Super-naive pretty-printer for JSON data
 /// Assumes a string of well-formed JSON and attempts to print it in a human readable structure
-/// TODO: Rewrite to parse as SIMD-vectors? We need to check character-groups for the characters we switch on
+/// TODO: Rewrite to parse as (SIMD-)vectors? We then need to check character-groups for the characters we switch on
 ///       Not important for this project, might split out to see what can be done.
 fn prettyprintJson(writer: Writer, data: []const u8) anyerror!void {
     // Assume well-structured json - do an as-simple-as-possible pretty-print without semantically parsing

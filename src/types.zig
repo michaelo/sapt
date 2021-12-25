@@ -25,7 +25,6 @@ pub const EntryResult = struct {
     response_content_type: std.BoundedArray(u8, HttpHeader.MAX_VALUE_LEN) = initBoundedArray(u8, HttpHeader.MAX_VALUE_LEN),
     response_http_code: u64 = 0,
     response_match: bool = false,
-    // TODO: Fetch response-length in case it's >1MB?
     response_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
     response_headers_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
 };
