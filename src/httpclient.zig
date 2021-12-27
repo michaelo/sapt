@@ -8,7 +8,7 @@ const cURL = @cImport({
     @cInclude("curl/curl.h");
 });
 
-fn writeToBoundedArrayCallback(data: *c_void, size: c_uint, nmemb: c_uint, user_data: *c_void) callconv(.C) c_uint {
+fn writeToBoundedArrayCallback(data: *anyopaque, size: c_uint, nmemb: c_uint, user_data: *anyopaque) callconv(.C) c_uint {
     var buffer = @intToPtr(*std.BoundedArray(u8, 1024*1024), @ptrToInt(user_data));
     var typed_data = @intToPtr([*]u8, @ptrToInt(data));
     buffer.appendSlice(typed_data[0 .. nmemb * size]) catch return 0;

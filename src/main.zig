@@ -76,7 +76,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 
     defer arena.deinit();
-    const aa = &arena.allocator;
+    const aa = arena.allocator();
 
     const args = try std.process.argsAlloc(aa);
     defer std.process.argsFree(aa, args);
@@ -101,7 +101,7 @@ pub fn main() !void {
 }
 
 /// Main functional starting point - move to AppContext?
-pub fn mainInner(allocator: *std.mem.Allocator, args: [][]const u8) anyerror!ExecutionStats {
+pub fn mainInner(allocator: std.mem.Allocator, args: [][]const u8) anyerror!ExecutionStats {
     try httpclient.init();
     defer httpclient.deinit();
 
@@ -173,11 +173,11 @@ pub const AppContext = struct {
     console: Console,
     parser: Parser,
     test_ctx: *TestContext,
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     // args: *argparse.AppArguments,
 
     /// Att! Allocates memory for both self and .test_ctx. Can be freed with .destroy().
-    pub fn create(allocator: *std.mem.Allocator, console: Console) !*AppContext {
+    pub fn create(allocator: std.mem.Allocator, console: Console) !*AppContext {
         // Scrap-buffer to use throughout tests
         var test_ctx = try allocator.create(TestContext);
 

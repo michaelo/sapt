@@ -99,7 +99,7 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
     }
 }
 
-const FunctionEntryFuncPtr = fn (*std.mem.Allocator, []const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
+const FunctionEntryFuncPtr = fn (std.mem.Allocator, []const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
 
 const FunctionEntry = struct {
     name: []const u8,
@@ -109,11 +109,11 @@ const FunctionEntry = struct {
     }
 };
 
-fn funcMyfunc(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcMyfunc(_: std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     try out_buf.insertSlice(0, value);
 }
 
-fn funcBase64enc(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcBase64enc(_: std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     var buffer: [1024]u8 = undefined;
     try out_buf.insertSlice(0, std.base64.standard.Encoder.encode(&buffer, value));
 }
@@ -127,7 +127,7 @@ test "funcBase64enc" {
     try testing.expectEqualStrings(expected, output.constSlice());
 }
 
-fn funcEnv(allocator: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+fn funcEnv(allocator: std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
     const env_value = try std.process.getEnvVarOwned(allocator, value);
     defer allocator.free(env_value);
     try out_buf.insertSlice(0, utils.sliceUpTo(u8, env_value, 0, 1024));
@@ -168,12 +168,12 @@ pub fn getFunction(functions: []const FunctionEntry, name: []const u8) error{NoS
 
 test "getFunction" {
     const TestFunctions = struct {
-        fn funcWoop(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+        fn funcWoop(_: std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
             _ = value;
             try out_buf.insertSlice(0, "woop");
         }
 
-        fn funcBlank(_: *std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
+        fn funcBlank(_: std.mem.Allocator, value: []const u8, out_buf: *std.BoundedArray(u8, 1024)) !void {
             _ = value;
             try out_buf.insertSlice(0, "");
         }
@@ -216,7 +216,7 @@ pub fn getGlobalFunction(name: []const u8) !FunctionEntryFuncPtr {
 pub fn expandFunctions(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize), pairs: *std.BoundedArray(BracketPair, MaxNumVariables)) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     var end_delta: i64 = 0;
     for (pairs.slice()) |*pair, i| {
