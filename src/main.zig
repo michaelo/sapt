@@ -85,7 +85,7 @@ pub fn main() !void {
         argparse.printHelp(false);
         std.process.exit(0);
     }
-    
+
     // Set up default handler to process requests
     httpClientProcessEntry = httpclient.processEntry;
 
@@ -115,7 +115,7 @@ pub fn mainInner(allocator: std.mem.Allocator, args: [][]const u8) anyerror!Exec
         else => {
             std.debug.print("Invalid arguments.\n", .{});
             argparse.printHelp(true);
-            fatal("Exiting.", .{});
+            fatal("Exiting.\n", .{});
         },
     };
 
@@ -128,10 +128,10 @@ pub fn mainInner(allocator: std.mem.Allocator, args: [][]const u8) anyerror!Exec
     var stderr = std.io.getStdErr().writer();
 
     const console = Console.init(.{
-        .std_writer = if(!parsed_args.silent) stdout else null,
+        .std_writer = if (!parsed_args.silent) stdout else null,
         .debug_writer = stdout,
-        .verbose_writer = if(!parsed_args.verbose) null else stdout,
-        .error_writer = if(!parsed_args.silent) stderr else null,
+        .verbose_writer = if (!parsed_args.verbose) null else stdout,
+        .error_writer = if (!parsed_args.silent) stderr else null,
         .colors = parsed_args.colors,
     });
 
@@ -161,7 +161,7 @@ pub fn mainInner(allocator: std.mem.Allocator, args: [][]const u8) anyerror!Exec
         stats = try app_ctx.processTestlist(&parsed_args, &input_vars, &extracted_vars);
     }
 
-    if(stats.num_fail > 0) {
+    if (stats.num_fail > 0) {
         console.errorPrint("Not all tests were successful: {d} of {d} failed\n", .{ stats.num_fail, stats.num_tests });
     }
 
@@ -184,12 +184,10 @@ pub const AppContext = struct {
         // Construct self
         var self = try allocator.create(AppContext);
 
-        self.* = AppContext {
+        self.* = AppContext{
             .allocator = allocator,
             .console = console,
-            .parser = Parser {
-                .console = &console
-            },
+            .parser = Parser{ .console = &console },
             .test_ctx = test_ctx,
         };
 
@@ -214,8 +212,6 @@ pub const AppContext = struct {
         stats.time_max = 0;
         stats.time_min = std.math.maxInt(i64);
 
-        
-
         if (args.multithreaded and repeats > 1) {
             console.verbosePrint("Starting multithreaded test ({d} threads working total {d} requests)\n", .{ try std.Thread.getCpuCount(), repeats });
 
@@ -231,7 +227,7 @@ pub const AppContext = struct {
 
                 pub fn worker(self: *Self) void {
                     var entry_time_start = std.time.milliTimestamp();
-                    if (httpClientProcessEntry(self.entry, .{.ssl_insecure = self.args.ssl_insecure, .verbose = self.args.verbose_curl}, self.result)) {
+                    if (httpClientProcessEntry(self.entry, .{ .ssl_insecure = self.args.ssl_insecure, .verbose = self.args.verbose_curl }, self.result)) {
                         if (!isEntrySuccessful(self.entry, self.result)) {
                             self.result.num_fails += 1;
                             self.result.conclusion = false;
@@ -272,7 +268,7 @@ pub const AppContext = struct {
             var i: usize = 0;
             while (i < repeats) : (i += 1) {
                 var entry_time_start = std.time.milliTimestamp();
-                if (httpClientProcessEntry(entry, .{.ssl_insecure = args.ssl_insecure, .verbose = args.verbose_curl}, result)) {
+                if (httpClientProcessEntry(entry, .{ .ssl_insecure = args.ssl_insecure, .verbose = args.verbose_curl }, result)) {
                     if (!isEntrySuccessful(entry, result)) {
                         result.num_fails += 1;
                         result.conclusion = false;
@@ -330,7 +326,7 @@ pub const AppContext = struct {
         };
 
         var conclusion = test_ctx.result.conclusion;
-    
+
         //////////////////////////
         // Evaluate results
         //////////////////////////
@@ -382,19 +378,20 @@ pub const AppContext = struct {
         // TBD: What if we want overrall results, but no data upon failed tests?
         if ((!conclusion and !args.silent) or args.show_response_data) {
             // Headers
-            if(test_ctx.result.response_headers_first_1mb.slice().len > 0) {
+            if (test_ctx.result.response_headers_first_1mb.slice().len > 0) {
                 console.stdColored(.Bold, "Incoming headers (up to 1024KB):\n", .{});
-                console.stdPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_headers_first_1mb.slice(), 0, 1024 * 1024)});
+                console.stdPrint("{s}\n\n", .{std.mem.trimRight(u8, utils.sliceUpTo(u8, test_ctx.result.response_headers_first_1mb.slice(), 0, 1024 * 1024), "\r\n")});
             }
 
             // Body
-            if(test_ctx.result.response_first_1mb.slice().len > 0) {
+            if (test_ctx.result.response_first_1mb.slice().len > 0) {
                 console.stdColored(.Bold, "Response (up to 1024KB):\n", .{});
                 if (!args.show_pretty_response_data) {
                     console.debugPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_first_1mb.slice(), 0, 1024 * 1024)});
-                } else if(console.debug_writer) |debug_writer| {
+                } else if (console.debug_writer) |debug_writer| {
                     try pretty.getPrettyPrinterByContentType(test_ctx.result.response_content_type.slice())(debug_writer, test_ctx.result.response_first_1mb.slice());
                 }
+                console.stdPrint("\n", .{});
             }
         }
 
@@ -419,27 +416,25 @@ pub const AppContext = struct {
 
         // Playbooks shall resolve file-includes relative to self
         var playbook_parent_path = io.getParent(playbook_path);
-        
+
         return app_ctx.processPlaybookBuf(&buf_playbook, playbook_parent_path, args, input_vars, extracted_vars);
     }
-
 
     fn processPlaybookBuf(app_ctx: *AppContext, buf_playbook: *std.BoundedArray(u8, config.MAX_PLAYBOOK_FILE_SIZE), playbook_basedir: []const u8, args: *AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
         const console = app_ctx.console;
         var parser = app_ctx.parser;
         // Load playbook
-        var buf_scrap = initBoundedArray(u8,16*1024);
+        var buf_scrap = initBoundedArray(u8, 16 * 1024);
         var buf_test = initBoundedArray(u8, config.MAX_TEST_FILE_SIZE);
 
         var segments = initBoundedArray(Parser.PlaybookSegment, 128);
         try segments.resize(Parser.parsePlaybook(buf_playbook.constSlice(), segments.unusedCapacitySlice()));
 
-
         // Iterate over playbook and act according to each type
         var num_failed: u64 = 0;
         var num_processed: u64 = 0;
         var total_num_tests = getNumOfSegmentType(segments.constSlice(), .TestInclude) + getNumOfSegmentType(segments.constSlice(), .TestRaw);
-        var variables_sets = [_]*kvstore.KvStore{input_vars, extracted_vars};
+        var variables_sets = [_]*kvstore.KvStore{ input_vars, extracted_vars };
         const time_start = std.time.milliTimestamp();
         // Pass through each item and process according to type
         for (segments.constSlice()) |segment| {
@@ -486,7 +481,7 @@ pub const AppContext = struct {
                     } else |_| {
                         num_failed += 1;
 
-                        if(args.early_quit) {
+                        if (args.early_quit) {
                             console.errorPrint("Early-quit is active, so aborting further steps\n", .{});
                             break;
                         }
@@ -528,7 +523,6 @@ pub const AppContext = struct {
         };
     }
 
-
     // Regular path for tests passed as arguments
     fn processTestlist(app_ctx: *AppContext, args: *AppArguments, input_vars: *kvstore.KvStore, extracted_vars: *kvstore.KvStore) !ExecutionStats {
         const console = app_ctx.console;
@@ -540,11 +534,11 @@ pub const AppContext = struct {
         // Used to check if we enter a folder
         var folder_local_vars: kvstore.KvStore = undefined;
         var current_folder: []const u8 = undefined;
-        var variables_sets = [_]*kvstore.KvStore{&folder_local_vars, input_vars, extracted_vars};
+        var variables_sets = [_]*kvstore.KvStore{ &folder_local_vars, input_vars, extracted_vars };
 
         // Get num of .pi-files in args.files
         var total_num_tests: u64 = 0;
-        for(args.files.constSlice()) |file| {
+        for (args.files.constSlice()) |file| {
             if (std.mem.endsWith(u8, file.constSlice(), config.FILE_EXT_TEST)) {
                 total_num_tests += 1;
             }
@@ -576,22 +570,22 @@ pub const AppContext = struct {
             };
 
             // Expand all variables
-            Parser.expandVariablesAndFunctions(buf_testfile.buffer.len, &buf_testfile,  variables_sets[0..]) catch {};
+            Parser.expandVariablesAndFunctions(buf_testfile.buffer.len, &buf_testfile, variables_sets[0..]) catch {};
 
             if (app_ctx.processAndEvaluateEntryFromBuf(num_processed, total_num_tests, file.constSlice(), buf_testfile.constSlice(), args, input_vars, extracted_vars, 1, 0)) {
                 // OK
             } else |_| {
                 num_failed += 1;
 
-                if(args.early_quit) {
+                if (args.early_quit) {
                     console.errorPrint("Early-quit is active, so aborting further tests\n", .{});
                     break;
                 }
             }
 
-            if(args.delay > 0) {
+            if (args.delay > 0) {
                 console.verbosePrint("Delaying next test with {}ms\n", .{args.delay});
-                std.time.sleep(args.delay*1000000);
+                std.time.sleep(args.delay * 1000000);
             }
         }
         console.stdPrint(
@@ -609,7 +603,6 @@ pub const AppContext = struct {
         };
     }
 
-
     pub fn envFileToKvStore(app_ctx: *AppContext, dir: fs.Dir, path: []const u8) !kvstore.KvStore {
         var tmpbuf = initBoundedArray(u8, config.MAX_ENV_FILE_SIZE);
 
@@ -625,7 +618,6 @@ pub const AppContext = struct {
     }
 };
 
-
 // Standalone functions
 
 fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
@@ -639,8 +631,6 @@ fn isEntrySuccessful(entry: *Entry, result: *EntryResult) bool {
 
     return true;
 }
-
-
 
 test "envFileToKvStore" {
     var app_ctx = try AppContext.create(std.testing.allocator, Console.initNull());
@@ -660,8 +650,7 @@ test "extracted variables shall be expanded in next test" {
         \\> GET https://some.url/api/step1
         \\< 0
         \\MYVAR=token:"()"
-        [0..]
-    );
+    [0..]);
 
     var buf_test2 = try allocator.create(std.BoundedArray(u8, config.MAX_TEST_FILE_SIZE));
     defer allocator.destroy(buf_test2);
@@ -670,8 +659,7 @@ test "extracted variables shall be expanded in next test" {
         \\--
         \\MYVAR={{MYVAR}}
         \\< 0
-        [0..]
-    );
+    [0..]);
 
     var app_ctx = try AppContext.create(std.testing.allocator, Console.initNull());
     defer app_ctx.destroy();
@@ -679,7 +667,7 @@ test "extracted variables shall be expanded in next test" {
     var args = AppArguments{};
     var input_vars = kvstore.KvStore{};
     var extracted_vars = kvstore.KvStore{};
-    var variables_sets = [_]*kvstore.KvStore{&input_vars, &extracted_vars};
+    var variables_sets = [_]*kvstore.KvStore{ &input_vars, &extracted_vars };
 
     // Mock httpclient, this can be generalized for multiple tests
     const HttpClientOverrides = struct {
@@ -687,8 +675,7 @@ test "extracted variables shall be expanded in next test" {
             try result.response_first_1mb.resize(0);
             try result.response_first_1mb.appendSlice(
                 \\token:"123123"
-                [0..]
-            );
+            [0..]);
         }
     };
 
@@ -698,12 +685,12 @@ test "extracted variables shall be expanded in next test" {
     Parser.expandVariablesAndFunctions(buf_test1.buffer.len, buf_test1, variables_sets[0..]) catch {};
     try app_ctx.processAndEvaluateEntryFromBuf(1, 2, "step1"[0..], buf_test1.constSlice(), &args, &input_vars, &extracted_vars, 1, 0);
     try testing.expect(extracted_vars.slice().len == 1);
-    
+
     // Handle step 2
     Parser.expandVariablesAndFunctions(buf_test2.buffer.len, buf_test2, variables_sets[0..]) catch {};
     try testing.expect(std.mem.indexOf(u8, buf_test2.constSlice(), "{{MYVAR}}") == null);
     try testing.expect(std.mem.indexOf(u8, buf_test2.constSlice(), "MYVAR={{MYVAR}}") == null);
     try testing.expect(std.mem.indexOf(u8, buf_test2.constSlice(), "MYVAR=123123") != null);
-    
+
     httpClientProcessEntry = oldProcess;
 }
