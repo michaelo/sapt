@@ -590,7 +590,11 @@ pub const Parser = struct {
                         if (main_it.rest().len == 0) break; // EOF
                         switch (main_it.rest()[0]) {
                             '>', '@' => {
-                                end_idx = @ptrToInt(&line2[line2.len - 1]) - buf_start; // line2.len-1?
+                                if(line2.len == 0) {
+                                    end_idx = @ptrToInt(line2.ptr) - buf_start; // line2.len-1?
+                                } else {
+                                    end_idx = @ptrToInt(&line2[line2.len - 1]) - buf_start; // line2.len-1?
+                                }
                                 result[seg_idx] = .{
                                     .line_start = chunk_line_start,
                                     .segment_type = .TestRaw,

@@ -25,7 +25,7 @@ Running a single test:
 Help:
 
     % sapt -h
-    sapt v1.0.0-rc6 - Simple API Tester
+    sapt v1.0.0 - Simple API Tester
 
     Usage: sapt [arguments] [file1.pi file2.pi ... fileN.pi]
 
@@ -193,10 +193,10 @@ Output:
 
 Build:
 ------------
-The tool is written in [zig](https://ziglang.org/), and depends on [libcurl](https://curl.se/libcurl/).
+The tool is written in [zig](https://ziglang.org/) v0.9.0, and depends on [libcurl](https://curl.se/libcurl/).
 
 Prerequisites:
-* [zig is installed](https://ziglang.org/download/) and available in path. Development is done on latest-ish 0.9.0
+* [zig is installed](https://ziglang.org/download/) and available in path. Development is done on 0.9.0
 * [libcurl is installed](https://curl.se/download.html) and library and headers are available in either path or through pkg-config.
 
 Get source:

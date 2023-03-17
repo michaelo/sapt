@@ -30,12 +30,12 @@
 		},
 		"comments": {
 			"begin": "^#",
-			"end": "\n",
+			"end": "\\n",
 			"name": "comment.pi"
 		},
 		"input-section": {
 			"begin": "(?<!^>)",
-			"end": "(?=<)",
+			"end": "^<",
 			"beginCaptures": {
 				"0": {
 					"name": "keywords.input-section.start.pi"
@@ -116,7 +116,7 @@
 			"name": "input-section-header.pi"
 		},
 		"output-section": {
-			"begin": "^<",
+			"begin": "^(?=<)",
 			"end": "$/Z",
 			"beginCaptures": {
 				"0": {
@@ -138,8 +138,26 @@
 				},
 				{
 					"include": "#output-extraction-expression"
+				},
+				{
+					"include": "#output-section-header"
 				}
 			]
+		},
+		"output-section-header": {
+			"match": "^(<)\\s(\\d+)\\s(.+)$",
+			"captures": {
+				"1": {
+					"name": "label.pi"
+				},
+				"2": {
+					"name": "constant.http.pi"
+				},
+				"3": {
+					"name": "string.url.pi"
+				}
+			},
+			"name": "input-section-header.pi"
 		}
 	},
 	"scopeName": "source.pi"

@@ -15,7 +15,7 @@ for TARGET_FULL in "${TARGETS[@]}"; do
     OUTDIR=${OUT_BASEDIR}/${TARGET}/bin
     cp README.md ${OUTDIR}
     cp LICENSE ${OUTDIR}
-    cp CREDITS ${OUTDIR}
+    cp ATTRIBUTIONS.md ${OUTDIR}
     cp xbuild/libs/${TARGET}/* ${OUTDIR}
     cd ${OUTDIR}
     # TODO: If windows: create zip, otherwise .tar.xz

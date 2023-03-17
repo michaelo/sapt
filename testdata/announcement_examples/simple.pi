@@ -1,0 +1,3 @@
+# Define request, and require it to respond with HTTP 200, put it in a file with extension ".pi"
+> GET https://example.com/
+< 200

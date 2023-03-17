@@ -505,7 +505,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
     // Verify that files exists and are readable
     var cwd = fs.cwd();
 
-    const readFlags = std.fs.File.OpenFlags{ .read = true };
+    const readFlags = std.fs.File.OpenFlags{ };
     {
         var i: usize = 0;
         var file: *FilePathEntry = undefined;

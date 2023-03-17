@@ -8,8 +8,6 @@ pub const ExpressionMatch = struct {
 /// Will scan the buf for pattern. Pattern can contain () to indicate narrow group to extract.
 /// Currently no support for character classes and other patterns.
 pub fn expressionExtractor(buf: []const u8, pattern: []const u8) ?ExpressionMatch {
-    _ = buf;
-    _ = pattern;
     if (std.mem.indexOf(u8, pattern, "()")) |pos| {
         var start_slice = pattern[0..pos];
         var end_slice = pattern[pos + 2 ..];

@@ -1,0 +1,2 @@
+> GET https://example.com/NoSuchUrl
+< 200

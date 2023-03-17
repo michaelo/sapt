@@ -1,0 +1,6 @@
+# Test inside playbook
+> GET https://example.com/
+< 200
+
+# Import simple.pi and repeat the request 10 times
+@simple.pi * 10

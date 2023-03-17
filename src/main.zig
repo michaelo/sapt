@@ -503,7 +503,7 @@ pub const AppContext = struct {
                     // Expand functions
                     Parser.expandVariablesAndFunctions(buf_scrap.buffer.len, &buf_scrap, null) catch {};
 
-                    try input_vars.addFromBuffer(buf_scrap.constSlice(), .Fail);
+                    try input_vars.addFromBuffer(buf_scrap.constSlice(), .KeepFirst);
                 },
             }
         }
