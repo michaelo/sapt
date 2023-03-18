@@ -53,23 +53,23 @@ pub fn printHelp(full: bool) void {
         \\Usage: {0s} [arguments] [file1.pi file2.pi ... fileN.pi]
         \\
         \\
-        , .{ config.APP_NAME, config.APP_VERSION});
+    , .{ config.APP_NAME, config.APP_VERSION });
 
     if (!full) {
         debug(
             \\try '{0s} --help' for more information.
             \\
             \\
-            , .{ config.APP_NAME});
+        , .{config.APP_NAME});
         return;
     }
-    
+
     debug(
         \\Examples:
         \\  {0s} api_is_healthy.pi
         \\  {0s} testsuite01/
         \\  {0s} -b=myplaybook.book
-//        \\  {0s} -p=myplaybook.book -s -o=output.log
+        //        \\  {0s} -p=myplaybook.book -s -o=output.log
         \\  {0s} -i=generaldefs/.env testsuite01/
         \\
         \\Arguments:
@@ -151,7 +151,7 @@ pub fn printFormatHelp() void {
         \\ * {{{{env(key)}}}} - attempts to look up the environment-variable 'key' from the operating system.
         \\
         \\
-        , .{config.APP_NAME, config.APP_VERSION});
+    , .{ config.APP_NAME, config.APP_VERSION });
 }
 
 fn argIs(arg: []const u8, full: []const u8, short: ?[]const u8) bool {
@@ -163,7 +163,7 @@ fn argHasValue(arg: []const u8, full: []const u8, short: ?[]const u8) ?[]const u
 
     var key = arg[0..eq_pos];
 
-    if(argIs(key, full, short)) {
+    if (argIs(key, full, short)) {
         return arg[eq_pos + 1 ..];
     } else return null;
 }
@@ -177,7 +177,6 @@ test "argIs" {
     try testing.expect(!argIs("-v", "--verbose", null));
 }
 
-
 test "argHasValue" {
     try testing.expect(argHasValue("--playbook=mybook", "--playbook", "-b") != null);
     try testing.expect(argHasValue("-b=mybook", "--playbook", "-b") != null);
@@ -186,80 +185,80 @@ test "argHasValue" {
 pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArguments {
     var result: AppArguments = .{};
 
-    if(args.len < 1) {
+    if (args.len < 1) {
         return error.NoArguments;
     }
 
     for (args) |arg| {
         // Flags
-        if(argIs(arg, "--help", "-h")) {
+        if (argIs(arg, "--help", "-h")) {
             printHelp(true);
             return error.OkExit;
         }
 
-        if(argIs(arg, "--help-format", null)) {
+        if (argIs(arg, "--help-format", null)) {
             printFormatHelp();
             return error.OkExit;
         }
 
-        if(argIs(arg, "--version", null)) {
-            debug("{0s} v{1s}\n", .{config.APP_NAME, config.APP_VERSION});
+        if (argIs(arg, "--version", null)) {
+            debug("{0s} v{1s}\n", .{ config.APP_NAME, config.APP_VERSION });
             return error.OkExit;
         }
 
-        if(argIs(arg, "--multithread", "-m")) {
+        if (argIs(arg, "--multithread", "-m")) {
             result.multithreaded = true;
             continue;
         }
 
-        if(argIs(arg, "--early-quit", "-e")) {
+        if (argIs(arg, "--early-quit", "-e")) {
             result.early_quit = true;
             continue;
         }
-        
-        if(argIs(arg, "--pretty", "-p")) {
+
+        if (argIs(arg, "--pretty", "-p")) {
             result.show_pretty_response_data = true;
             continue;
         }
 
-        if(argIs(arg, "--show-response", "-d")) {
+        if (argIs(arg, "--show-response", "-d")) {
             result.show_response_data = true;
             continue;
         }
 
-        if(argIs(arg, "--silent", "-s")) {
+        if (argIs(arg, "--silent", "-s")) {
             result.silent = true;
             result.verbose = false;
             continue;
         }
 
-        if(!result.silent and argIs(arg, "--verbose", "-v")) {
+        if (!result.silent and argIs(arg, "--verbose", "-v")) {
             result.verbose = true;
             continue;
         }
 
-        if(!result.silent and argIs(arg, "--verbose-curl", null)) {
+        if (!result.silent and argIs(arg, "--verbose-curl", null)) {
             result.verbose_curl = true;
             continue;
         }
 
-        if(argIs(arg, "--insecure", null)) {
+        if (argIs(arg, "--insecure", null)) {
             result.ssl_insecure = true;
             continue;
         }
 
         // Value-parameters
-        if(argHasValue(arg, "--initial-vars", "-i")) |value| {
+        if (argHasValue(arg, "--initial-vars", "-i")) |value| {
             try result.input_vars_file.appendSlice(value);
             continue;
         }
 
-        if(argHasValue(arg, "--playbook", "-b")) |value| {
+        if (argHasValue(arg, "--playbook", "-b")) |value| {
             try result.playbook_file.appendSlice(value);
             continue;
         }
 
-        if(argHasValue(arg, "--delay", null)) |value| {
+        if (argHasValue(arg, "--delay", null)) |value| {
             result.delay = std.fmt.parseUnsigned(u64, value, 10) catch {
                 err("WARNING: Could not parse value of {s} as a positive number\n", .{arg});
                 return error.InvalidArgument;
@@ -267,20 +266,19 @@ pub fn parseArgs(args: [][]const u8, maybe_variables: ?*kvstore.KvStore) !AppArg
             continue;
         }
 
-        if(argHasValue(arg, "--colors", null)) |value| {
+        if (argHasValue(arg, "--colors", null)) |value| {
             result.colors = std.meta.stringToEnum(Console.ColorConfig, value) orelse return error.InvalidArgument;
             continue;
         }
 
-
-        if(maybe_variables) |variables| if(std.mem.startsWith(u8, arg, "-D")) {
+        if (maybe_variables) |variables| if (std.mem.startsWith(u8, arg, "-D")) {
             // Found variable-entry
             try variables.addFromBuffer(arg[2..], .KeepFirst);
             continue;
         };
 
         // Unhandled flag/arg?
-        if(std.mem.startsWith(u8, arg, "-")) {
+        if (std.mem.startsWith(u8, arg, "-")) {
             err("ERROR: Unknown parameter '{s}'\n", .{arg});
             return error.InvalidArgument;
         }
@@ -386,7 +384,6 @@ test "parseArgs playbook" {
     }
 }
 
-
 test "parseArgs input vars" {
     {
         var myargs = [_][]const u8{"dummyarg"};
@@ -442,7 +439,6 @@ test "parseArgs pretty" {
     }
 }
 
-
 test "parseArgs early-quit" {
     {
         var myargs = [_][]const u8{"dummyarg"};
@@ -465,7 +461,6 @@ test "parseArgs showHelp" {
     {
         var myargs = [_][]const u8{"-h"};
         try testing.expectError(error.OkExit, parseArgs(myargs[0..], null));
-
     }
     {
         var myargs = [_][]const u8{"--help"};
@@ -494,8 +489,8 @@ test "parseArgs -DKEY=VALUE" {
 
 /// For debug
 fn dumpFileList(files: []FilePathEntry) void {
-    for (files) |itm, idx| {
-        debug("{d}: {s}\n", .{idx, itm.constSlice()});
+    for (files, 0..) |itm, idx| {
+        debug("{d}: {s}\n", .{ idx, itm.constSlice() });
     }
 }
 
@@ -505,7 +500,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
     // Verify that files exists and are readable
     var cwd = fs.cwd();
 
-    const readFlags = std.fs.File.OpenFlags{ };
+    const readFlags = std.fs.File.OpenFlags{};
     {
         var i: usize = 0;
         var file: *FilePathEntry = undefined;
@@ -524,7 +519,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                 else => return error.UnknownError,
             };
             defer dir.close();
-            
+
             var d_it = dir.iterate();
             var dir_slice_start = i;
             while (try d_it.next()) |a_path| {
@@ -537,7 +532,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                         try item.appendSlice(a_path.name);
                         // Add to files at spot of folder - pushing it further back in the list
                         try files.insert(i, item);
-                        i+=1;
+                        i += 1;
                     },
                     .Directory => {
                         // debug("Found subdir: {s}\n", .{a_path.name});
@@ -548,11 +543,11 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
             }
 
             // Remove folder entry - don't need it
-            _= files.orderedRemove(i);
+            _ = files.orderedRemove(i);
             i -= 1;
 
             // Ensure folder-entries is sorted
-            std.sort.sort(FilePathEntry, files.slice()[dir_slice_start..i+1], {}, struct {
+            std.sort.sort(FilePathEntry, files.slice()[dir_slice_start .. i + 1], {}, struct {
                 fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
                     _ = context;
                     return std.mem.lessThan(u8, a.constSlice(), b.constSlice());

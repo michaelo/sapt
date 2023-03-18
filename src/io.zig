@@ -9,7 +9,7 @@ pub fn readFileRaw(path: []const u8, target_buf: []u8) !usize {
 
 /// Reads contents from path, relative to dir, and store in target_buf
 pub fn readFileRawRel(dir: std.fs.Dir, path: []const u8, target_buf: []u8) !usize {
-    var file = try dir.openFile(path, .{ });
+    var file = try dir.openFile(path, .{});
     defer file.close();
 
     return try file.readAll(target_buf[0..]);
@@ -29,7 +29,7 @@ pub fn readFile(comptime S: usize, path: []const u8, target_buf: *std.BoundedArr
 
 /// Reads contents from path, relative to dir, and store in target_buf
 pub fn readFileRel(comptime S: usize, dir: std.fs.Dir, path: []const u8, target_buf: *std.BoundedArray(u8, S)) !void {
-    var file = try dir.openFile(path, .{ });
+    var file = try dir.openFile(path, .{});
     defer file.close();
 
     const size = try file.getEndPos();

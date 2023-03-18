@@ -3,7 +3,7 @@
 /// This is simply intended as a quick way to make the content returned somewhat more easy to inspect.
 /// So, DISCLAIMER: Don't uncritically rely on the formatted output. If in doubt - check the raw response.
 /// This is also why formatted output should not be on by default.
-/// 
+///
 /// TOOD: The parsers/printers can be cleaned up quite a bit.
 /// TBD: Support basic syntax highlighting as well?
 /// TBD: Can add basic CSS and JS-formatters as well to support in-filed <style> and <script>

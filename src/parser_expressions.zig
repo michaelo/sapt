@@ -13,14 +13,14 @@ pub fn expressionExtractor(buf: []const u8, pattern: []const u8) ?ExpressionMatc
         var end_slice = pattern[pos + 2 ..];
 
         var start_pos = std.mem.indexOf(u8, buf, start_slice) orelse return null;
-        var end_pos = if(end_slice.len == 0) buf.len else std.mem.indexOfPos(u8, buf, start_pos + start_slice.len, end_slice) orelse return null;
+        var end_pos = if (end_slice.len == 0) buf.len else std.mem.indexOfPos(u8, buf, start_pos + start_slice.len, end_slice) orelse return null;
 
         // If no end-match, assume end of line...
         // This might come back to bite me, but it's as good as anything right now without particular usecases
         // This allows us to e.g. get particular headers-values. The more future-proof solution is to implement
         // bettter pattern-matching-engine.
         if (end_pos == 0) {
-            if(std.mem.indexOfAny(u8, buf[start_pos + start_slice.len..], "\r\n")) |line_end| {
+            if (std.mem.indexOfAny(u8, buf[start_pos + start_slice.len ..], "\r\n")) |line_end| {
                 end_pos = start_pos + start_slice.len + line_end;
             } else {
                 end_pos = buf.len;

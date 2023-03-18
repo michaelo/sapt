@@ -13,11 +13,7 @@ const testing = std.testing;
 /// Requirement: Set up from single thread, no modifications after start()
 pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, worker_function: fn (*PayloadType) void) type {
     const MAX_NUM_THREADS = 128;
-    const ThreadPoolState = enum {
-        NotStarted,
-        Running,
-        Finished
-    };
+    const ThreadPoolState = enum { NotStarted, Running, Finished };
     return struct {
         const Self = @This();
         num_threads: usize,
@@ -27,14 +23,14 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
         work: [TaskCapacity]PayloadType = undefined,
         next_work_item_idx: usize = 0,
         next_free_item_idx: usize = 0,
-        
+
         function: fn (*PayloadType) void = worker_function,
 
         thread_pool: [MAX_NUM_THREADS]std.Thread = undefined,
 
         /// Required to be populated from single thread as of now, and must be done before start.
         pub fn addWork(self: *Self, work: PayloadType) !void {
-            if(self.isCapacity()) {
+            if (self.isCapacity()) {
                 self.work[self.next_free_item_idx] = work;
                 // next_work_item_idx = next_free_item_idx;
                 self.next_free_item_idx += 1;
@@ -45,7 +41,7 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
 
         /// Not thread safe, must lock outside
         fn takeWork(self: *Self) !PayloadType {
-            if(self.isWork()) {
+            if (self.isWork()) {
                 var item_to_return = self.next_work_item_idx;
                 self.next_work_item_idx += 1;
                 return self.work[item_to_return];
@@ -66,29 +62,31 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
         fn worker(self: *Self) void {
             // While work to be done
             var work: PayloadType = undefined;
-            while(true) {
+            while (true) {
                 // Critical section
                 // Pop work
                 {
                     self.work_mutex.lock();
                     defer self.work_mutex.unlock();
 
-                    if(!self.isWork()) break;
-                    work = self.takeWork() catch { break; };
+                    if (!self.isWork()) break;
+                    work = self.takeWork() catch {
+                        break;
+                    };
                 }
                 // End critical section
 
-               // Call worker_function with workload
-               self.function(&work);
+                // Call worker_function with workload
+                self.function(&work);
             }
         }
 
         /// Once all work is set up: call this to spawn all threads and get to work
         pub fn start(self: *Self) !void {
-            // Fill up thread pool, with .worker() 
-            var t_id:usize = 0;
+            // Fill up thread pool, with .worker()
+            var t_id: usize = 0;
             // TBD: What if only some threads are spawned?
-            while(t_id < self.num_threads) : (t_id += 1) {
+            while (t_id < self.num_threads) : (t_id += 1) {
                 self.thread_pool[t_id] = try std.Thread.spawn(.{}, Self.worker, .{self});
             }
         }
@@ -96,8 +94,8 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
         /// Join on all threads of pool
         pub fn join(self: *Self) void {
             // Wait for all to finish
-            var t_id:usize = 0;
-            while(t_id < self.num_threads) : (t_id += 1) {
+            var t_id: usize = 0;
+            while (t_id < self.num_threads) : (t_id += 1) {
                 self.thread_pool[t_id].join();
             }
         }
@@ -122,7 +120,7 @@ test "threadpool basic implementation" {
         mutex: Mutex = Mutex{},
         total: u64 = 0,
     };
-    //   
+    //
     const MyPayload = struct {
         const Self = @This();
         data: u64,
@@ -131,11 +129,11 @@ test "threadpool basic implementation" {
         pub fn worker(self: *Self) void {
             self.result.mutex.lock();
             defer self.result.mutex.unlock();
-            
+
             var total = self.result.total;
             total += self.data;
             total += self.data;
-            
+
             self.result.total = total;
         }
     };
@@ -145,8 +143,8 @@ test "threadpool basic implementation" {
     var pool = ThreadPool(MyPayload, 1000, MyPayload.worker).init(24);
     var tmp: usize = 0;
     var checkresult: u64 = 0;
-    while(tmp < 1000) : (tmp += 1) {
-        checkresult += tmp*2;
+    while (tmp < 1000) : (tmp += 1) {
+        checkresult += tmp * 2;
         try pool.addWork(.{
             .data = tmp,
             .result = &result,

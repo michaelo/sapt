@@ -18,7 +18,7 @@ pub const MAX_PLAYBOOK_FILE_SIZE = 1024 * 1024;
 fn getVersion() []const u8 {
     if (builtin.mode != .Debug) {
         return @embedFile("../VERSION");
-     } else {
+    } else {
         return @embedFile("../VERSION") ++ "-UNRELEASED";
-     }
+    }
 }

@@ -18,7 +18,7 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
     var pairs: std.BoundedArray(BracketPair, MaxNumVariables) = std.BoundedArray(BracketPair, MaxNumVariables).init(0) catch unreachable;
     var skip_next = false;
 
-    for (buffer.slice()[0 .. buffer.slice().len - 1]) |char, i| {
+    for (buffer.slice()[0 .. buffer.slice().len - 1], 0..) |char, i| {
         if (skip_next) {
             skip_next = false;
             continue;
@@ -40,7 +40,7 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
                     } else {
                         // TODO: convert to line and col
                         // TODO: Print surrounding slice?
-                        // Att! Not an error. E.g. for json-payloads... 
+                        // Att! Not an error. E.g. for json-payloads...
                         debug("WARNING: Found close-brackets at idx={d} with none open\n", .{i});
                     }
                 }
@@ -57,10 +57,9 @@ pub fn findAllVariables(comptime BufferSize: usize, comptime MaxNumVariables: us
     return pairs;
 }
 
-
 /// Buffer must be large enough to contain the expanded variant.
 /// TODO: Test performance with fixed sizes. Possibly redesign the outer to utilize a common scrap buffer
-pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize), pairs: *std.BoundedArray(BracketPair, MaxNumVariables), variables: *KvStore) error{BufferTooSmall, Overflow}!void {
+pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize), pairs: *std.BoundedArray(BracketPair, MaxNumVariables), variables: *KvStore) error{ BufferTooSmall, Overflow }!void {
     // Algorithm:
     // * prereq: pairs are sorted by depth, desc
     // * pick entry from pairs until empty
@@ -86,7 +85,7 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
                 pair.resolved = true;
 
                 for (pairs.slice()[0..]) |*pair2| {
-                    if (pair2.resolved) continue;// Since we no longer go exclusively by depth (we run this function multiple times with different sets), we have to check from start and filter out resolved instead
+                    if (pair2.resolved) continue; // Since we no longer go exclusively by depth (we run this function multiple times with different sets), we have to check from start and filter out resolved instead
                     if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try utils.addUnsignedSigned(u64, i64, pair2.start, end_delta);
                     if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try utils.addUnsignedSigned(u64, i64, pair2.end, end_delta);
                 }
@@ -131,7 +130,7 @@ fn funcEnv(allocator: std.mem.Allocator, value: []const u8, out_buf: *std.Bounde
     const env_value = try std.process.getEnvVarOwned(allocator, value);
     defer allocator.free(env_value);
     try out_buf.insertSlice(0, utils.sliceUpTo(u8, env_value, 0, 1024));
-    if(env_value.len > out_buf.capacity()) {
+    if (env_value.len > out_buf.capacity()) {
         return error.Overflow;
     }
 }
@@ -140,9 +139,9 @@ test "funcEnv" {
     var input = "PATH";
 
     var output = try std.BoundedArray(u8, 1024).init(0);
-    funcEnv(std.testing.allocator, input, &output) catch |e| switch(e) {
+    funcEnv(std.testing.allocator, input, &output) catch |e| switch (e) {
         error.Overflow => {},
-        else => return e
+        else => return e,
     };
     try testing.expect(output.slice().len > 0);
 }
@@ -212,15 +211,15 @@ pub fn getGlobalFunction(name: []const u8) !FunctionEntryFuncPtr {
     return getFunction(global_functions[0..], name);
 }
 
-/// 
+///
 pub fn expandFunctions(comptime BufferSize: usize, comptime MaxNumVariables: usize, buffer: *std.BoundedArray(u8, BufferSize), pairs: *std.BoundedArray(BracketPair, MaxNumVariables)) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var end_delta: i64 = 0;
-    for (pairs.slice()) |*pair, i| {
-        if(pair.resolved) continue;
+    for (pairs.slice(), 0..) |*pair, i| {
+        if (pair.resolved) continue;
         var pair_len = pair.end - pair.start + 1;
         var key = buffer.slice()[pair.start + 2 .. pair.end - 1];
 
@@ -247,7 +246,6 @@ pub fn expandFunctions(comptime BufferSize: usize, comptime MaxNumVariables: usi
         }
     }
 }
-
 
 test "bracketparsing - variables and functions" {
     const MAX_VARIABLES = 64;

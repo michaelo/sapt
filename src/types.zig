@@ -29,9 +29,7 @@ pub const EntryResult = struct {
     response_headers_first_1mb: std.BoundedArray(u8, 1024 * 1024) = initBoundedArray(u8, 1024 * 1024),
 };
 
-
 pub const TestContext = struct { entry: Entry = .{}, result: EntryResult = .{} };
-
 
 pub const HttpMethod = enum {
     CONNECT,
@@ -68,14 +66,18 @@ test "HttpMethod.create()" {
 }
 
 pub const HttpHeader = struct {
-    pub const MAX_VALUE_LEN = 8*1024;
+    pub const MAX_VALUE_LEN = 8 * 1024;
 
-    name: std.BoundedArray(u8,256),
-    value: std.BoundedArray(u8,MAX_VALUE_LEN),
+    name: std.BoundedArray(u8, 256),
+    value: std.BoundedArray(u8, MAX_VALUE_LEN),
     pub fn create(name: []const u8, value: []const u8) !HttpHeader {
-        return HttpHeader {
-            .name = std.BoundedArray(u8,256).fromSlice(std.mem.trim(u8, name, " ")) catch { return error.ParseError; },
-            .value = std.BoundedArray(u8,MAX_VALUE_LEN).fromSlice(std.mem.trim(u8, value, " ")) catch { return error.ParseError; },
+        return HttpHeader{
+            .name = std.BoundedArray(u8, 256).fromSlice(std.mem.trim(u8, name, " ")) catch {
+                return error.ParseError;
+            },
+            .value = std.BoundedArray(u8, MAX_VALUE_LEN).fromSlice(std.mem.trim(u8, value, " ")) catch {
+                return error.ParseError;
+            },
         };
     }
 
@@ -89,18 +91,22 @@ pub const HttpHeader = struct {
 test "HttpHeader.render" {
     var mybuf = initBoundedArray(u8, 2048);
     var header = try HttpHeader.create("Accept", "application/xml");
-    
+
     try header.render(mybuf.buffer.len, &mybuf);
     try testing.expectEqualStrings("Accept: application/xml", mybuf.slice());
 }
 
 pub const ExtractionEntry = struct {
-    name: std.BoundedArray(u8,256),
-    expression: std.BoundedArray(u8,1024),
+    name: std.BoundedArray(u8, 256),
+    expression: std.BoundedArray(u8, 1024),
     pub fn create(name: []const u8, value: []const u8) !ExtractionEntry {
-        return ExtractionEntry {
-            .name = std.BoundedArray(u8,256).fromSlice(std.mem.trim(u8, name, " ")) catch { return error.ParseError; },
-            .expression = std.BoundedArray(u8,1024).fromSlice(std.mem.trim(u8, value, " ")) catch { return error.ParseError; },
+        return ExtractionEntry{
+            .name = std.BoundedArray(u8, 256).fromSlice(std.mem.trim(u8, name, " ")) catch {
+                return error.ParseError;
+            },
+            .expression = std.BoundedArray(u8, 1024).fromSlice(std.mem.trim(u8, value, " ")) catch {
+                return error.ParseError;
+            },
         };
     }
 };

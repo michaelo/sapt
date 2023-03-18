@@ -49,7 +49,7 @@ pub const KvStore = struct {
         if (self.count() == 0) return null;
 
         // TODO: can binary search, current solution will be expensive for later entries in large list
-        for (self.store.slice()) |entry, i| {
+        for (self.store.slice(), 0..) |entry, i| {
             switch (std.mem.order(u8, entry.key.constSlice(), key)) {
                 .gt => {
                     return i;

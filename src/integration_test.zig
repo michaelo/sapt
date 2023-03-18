@@ -54,12 +54,8 @@ test "integration: requiring -Darg" {
         try testing.expect(stats.num_success == 0);
     }
 
-
     {
-        var args = [_][]const u8{
-            "testdata/integrationtests/suite_requiring_-Darg",
-            "-DHOSTNAME=michaelodden.com"
-        };
+        var args = [_][]const u8{ "testdata/integrationtests/suite_requiring_-Darg", "-DHOSTNAME=michaelodden.com" };
 
         var stats = try main.mainInner(testing.allocator, args[0..]);
         try testing.expect(stats.num_tests == 2);

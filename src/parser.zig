@@ -60,7 +60,7 @@ pub const Parser = struct {
 
     /// data: the data to parse - all expansions etc must have been done before this.
     /// result: pre-allocated struct to popuplate with parsed data
-    /// line_idx_offset: Which line_idx in the source file the data originates from. Used to 
+    /// line_idx_offset: Which line_idx in the source file the data originates from. Used to
     ///                  generate better parse errors.
     pub fn parseContents(self: *Self, data: []const u8, result: *Entry, line_idx_offset: usize) errors!void {
         const ParseState = enum {
@@ -208,11 +208,10 @@ pub const Parser = struct {
         }
     }
 
-
     test "parseContents" {
         var entry = Entry{};
         var console = Console.initNull();
-        var parser = Parser {
+        var parser = Parser{
             .console = &console,
         };
 
@@ -244,7 +243,7 @@ pub const Parser = struct {
     test "parseContents extracts to variables" {
         var entry = Entry{};
         var console = Console.initNull();
-        var parser = Parser {
+        var parser = Parser{
             .console = &console,
         };
 
@@ -267,7 +266,7 @@ pub const Parser = struct {
 
     test "parseContents supports JSON-payloads" {
         var console = Console.initNull();
-        var parser = Parser {
+        var parser = Parser{
             .console = &console,
         };
 
@@ -285,7 +284,7 @@ pub const Parser = struct {
             try parser.parseContents(data, &entry, 0);
             try testing.expectEqualStrings(
                 \\{"key":{"inner-key":[1,2,3]}}
-                , entry.payload.constSlice());
+            , entry.payload.constSlice());
         }
         {
             var entry = Entry{};
@@ -311,13 +310,13 @@ pub const Parser = struct {
                 \\   [1
                 \\  ,2,3]
                 \\}}
-                , entry.payload.constSlice());
+            , entry.payload.constSlice());
         }
     }
 
     test "parseContents supports XML-payloads" {
         var console = Console.initNull();
-        var parser = Parser {
+        var parser = Parser{
             .console = &console,
         };
         var entry = Entry{};
@@ -349,12 +348,12 @@ pub const Parser = struct {
             \\       </m:GetLastTradePrice>
             \\   </SOAP-ENV:Body>
             \\</SOAP-ENV:Envelope>
-            , entry.payload.constSlice());
+        , entry.payload.constSlice());
     }
 
-// test "parseContents supports binary-payloads?" {
-    
-// }
+    // test "parseContents supports binary-payloads?" {
+
+    // }
 
     /// buffer must be big enough to store the expanded variables. TBD: Manage on heap?
     pub fn expandVariablesAndFunctions(comptime S: usize, buffer: *std.BoundedArray(u8, S), maybe_variables_sets: ?[]*kvstore.KvStore) !void {
@@ -371,10 +370,10 @@ pub const Parser = struct {
         var pairs = try findAllVariables(buffer.buffer.len, MAX_VARIABLES, buffer);
         std.sort.sort(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
 
-        if(maybe_variables_sets) |variables_sets| for (variables_sets) |variables| {
-            expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch(e) {
-                //error.NoSuchVariableFound => {}, // This is OK, as we don't know which variable_set the variable to expand may be in 
-                else => return e
+        if (maybe_variables_sets) |variables_sets| for (variables_sets) |variables| {
+            expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch (e) {
+                //error.NoSuchVariableFound => {}, // This is OK, as we don't know which variable_set the variable to expand may be in
+                else => return e,
             };
         };
 
@@ -443,12 +442,12 @@ pub const Parser = struct {
             \\{{s3_var}}
         );
 
-        var str_expected = 
-        \\s1varlongervaluehere
-        \\
-        \\s3varlongervaluehere:
-        \\
-        \\s3varlongervaluehere
+        var str_expected =
+            \\s1varlongervaluehere
+            \\
+            \\s3varlongervaluehere:
+            \\
+            \\s3varlongervaluehere
         ;
         var s1 = kvstore.KvStore{};
         var s2 = kvstore.KvStore{};
@@ -458,7 +457,7 @@ pub const Parser = struct {
         try s2.add("s2_var", "");
         try s3.add("s3_var", "s3varlongervaluehere");
 
-        var sets = [_]*kvstore.KvStore{&s1, &s2, &s3};
+        var sets = [_]*kvstore.KvStore{ &s1, &s2, &s3 };
 
         try expandVariablesAndFunctions(str.buffer.len, &str, sets[0..]);
 
@@ -467,7 +466,7 @@ pub const Parser = struct {
 
     test "parseContents ignores comments" {
         var console = Console.initNull();
-        var parser = Parser {
+        var parser = Parser{
             .console = &console,
         };
         var entry = Entry{};
@@ -488,7 +487,7 @@ pub const Parser = struct {
 
     test "parseContents shall extract payload" {
         var console = Console.initNull();
-        var parser = Parser {
+        var parser = Parser{
             .console = &console,
         };
         var entry = Entry{};
@@ -590,7 +589,7 @@ pub const Parser = struct {
                         if (main_it.rest().len == 0) break; // EOF
                         switch (main_it.rest()[0]) {
                             '>', '@' => {
-                                if(line2.len == 0) {
+                                if (line2.len == 0) {
                                     end_idx = @ptrToInt(line2.ptr) - buf_start; // line2.len-1?
                                 } else {
                                     end_idx = @ptrToInt(&line2[line2.len - 1]) - buf_start; // line2.len-1?
@@ -727,7 +726,6 @@ test "parse super complex playbook" {
     const PlaybookSegmentType = Parser.PlaybookSegmentType;
     const PlaybookSegment = Parser.PlaybookSegment;
 
-
     const buf_complex_playbook_example =
         \\# Exploration of integrated tests in playbooks
         \\# Can rely on newline+> to indicate new tests.
@@ -786,8 +784,8 @@ test "parse super complex playbook" {
 
 /// TEST/DEBUG
 fn dumpUnresolvedBracketPairsForBuffer(buf: []const u8, brackets: []const BracketPair) void {
-    for (brackets) |pair, i| {
+    for (brackets, 0..) |pair, i| {
         if (pair.resolved) continue;
-        debug("{d}: [{d}-{d}, {d}]: {s}\n", .{i, pair.start, pair.end, pair.depth, buf[pair.start..pair.end+1]});
+        debug("{d}: [{d}-{d}, {d}]: {s}\n", .{ i, pair.start, pair.end, pair.depth, buf[pair.start .. pair.end + 1] });
     }
 }
