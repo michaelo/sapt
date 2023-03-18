@@ -8,14 +8,19 @@ pub fn build(b: *std.build.Builder) !void {
     // b.addStaticLibrary("libcurl", "");
     const target = b.standardTargetOptions(.{});
 
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable("sapt", "src/main.zig");
+    const exe = b.addExecutable(.{
+        .name = "sapt",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.setMainPkgPath(".");
     exe.linkSystemLibrary("c");
 
-    exe.setTarget(target);
     // This seems quite hacky, but makes it currently possible to cross-build provided we have prebuilt libcurl.dll/.so/.dylib (and zlib1?)
     // Cross-builds with windows host: always libcurl
     // Cross-builds with WSL host: 
@@ -30,18 +35,18 @@ pub fn build(b: *std.build.Builder) !void {
             .linux => {
                 exe.linkSystemLibrary("libcurl");
                 // try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
-                try exe.lib_paths.insert(0, "xbuild/libs/x86_64-linux");
+                try exe.lib_paths.insert(0, std.Build.FileSource.relative("xbuild/libs/x86_64-linux"));
                
             },
             .macos => {
                 exe.linkSystemLibrary("libcurl");
                 // try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
-                try exe.lib_paths.insert(0, "xbuild/libs/x86_64-macos");
+                try exe.lib_paths.insert(0, std.Build.FileSource.relative("xbuild/libs/x86_64-macos"));
             },
             .windows => {
                 exe.linkSystemLibrary("libcurl");
                 // try exe.lib_paths.resize(0); // Workaround, as linkSystemLibrary adds system link-path, and we want to override this with a custom one
-                try exe.lib_paths.insert(0, "xbuild/libs/x86_64-windows");
+                try exe.lib_paths.insert(0, std.Build.FileSource.relative("xbuild/libs/x86_64-windows"));
                 // TODO: Copy in zlib1.dll and libcurl.dll to prefix
             },
             else => {
@@ -50,7 +55,7 @@ pub fn build(b: *std.build.Builder) !void {
             }
         }
     }
-    exe.setBuildMode(mode);
+
     // try exe.lib_paths.resize(0); 
     // exe.addLibPath("xbuild/libs/x86_64-linux");
     // exe.addLibPath("xbuild/libs/x86_64-mac");
@@ -67,15 +72,21 @@ pub fn build(b: *std.build.Builder) !void {
     run_step.dependOn(&run_cmd.step);
 
 
-    var all_tests = b.addTest("src/test.zig");
-    all_tests.setBuildMode(mode);
+    const all_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/test.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
     const test_step = b.step("test", "Run default test suite");
     test_step.dependOn(&all_tests.step);
 
     if(target.isNative()) {
-        var all_itests = b.addTest("src/integration_test.zig");
-        all_itests.setBuildMode(mode);
+        const all_itests = b.addTest(.{
+            .root_source_file = .{ .path = "src/integration_test.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
         all_itests.setFilter("integration:"); // Run only tests prefixed with "integration:"
         all_itests.linkSystemLibrary("c");
         all_itests.linkSystemLibrary("libcurl");
