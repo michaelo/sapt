@@ -3,6 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 const utils = @import("utils.zig");
 const config = @import("config.zig");
+const httpclient = @import("httpclient.zig");
 const initBoundedArray = utils.initBoundedArray;
 
 /// The main definition of a test to perform
@@ -31,39 +32,7 @@ pub const EntryResult = struct {
 
 pub const TestContext = struct { entry: Entry = .{}, result: EntryResult = .{} };
 
-pub const HttpMethod = enum {
-    CONNECT,
-    DELETE,
-    GET,
-    HEAD,
-    OPTIONS,
-    PATCH,
-    POST,
-    PUT,
-    TRACE,
-
-    pub fn string(self: HttpMethod) [:0]const u8 {
-        return @tagName(self);
-    }
-    pub fn create(raw: []const u8) !HttpMethod {
-        return std.meta.stringToEnum(HttpMethod, raw) orelse error.NoSuchHttpMethod;
-    }
-};
-
-test "HttpMethod.create()" {
-    try testing.expect((try HttpMethod.create("OPTIONS")) == HttpMethod.OPTIONS);
-    try testing.expect((try HttpMethod.create("HEAD")) == HttpMethod.HEAD);
-    try testing.expect((try HttpMethod.create("CONNECT")) == HttpMethod.CONNECT);
-    try testing.expect((try HttpMethod.create("TRACE")) == HttpMethod.TRACE);
-    try testing.expect((try HttpMethod.create("GET")) == HttpMethod.GET);
-    try testing.expect((try HttpMethod.create("POST")) == HttpMethod.POST);
-    try testing.expect((try HttpMethod.create("PUT")) == HttpMethod.PUT);
-    try testing.expect((try HttpMethod.create("PATCH")) == HttpMethod.PATCH);
-    try testing.expect((try HttpMethod.create("DELETE")) == HttpMethod.DELETE);
-    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create("BLAH"));
-    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create(""));
-    try testing.expectError(error.NoSuchHttpMethod, HttpMethod.create(" GET"));
-}
+pub const HttpMethod = httpclient.HttpMethod;
 
 pub const HttpHeader = struct {
     pub const MAX_VALUE_LEN = 8 * 1024;
@@ -89,10 +58,10 @@ pub const HttpHeader = struct {
 };
 
 test "HttpHeader.render" {
-    var mybuf = initBoundedArray(u8, 2048);
+    var mybuf = initBoundedArray(u8, 128);
     var header = try HttpHeader.create("Accept", "application/xml");
 
-    try header.render(mybuf.buffer.len, &mybuf);
+    try header.render(128, &mybuf);
     try testing.expectEqualStrings("Accept: application/xml", mybuf.slice());
 }
 

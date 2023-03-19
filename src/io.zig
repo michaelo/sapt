@@ -83,7 +83,7 @@ pub fn getRealPath(base: []const u8, sub: []const u8, scrap: []u8) ![]u8 {
 test "readFile" {
     var buf = try std.BoundedArray(u8, 1024 * 1024).init(0);
     try testing.expect(buf.slice().len == 0);
-    try readFile(buf.buffer.len, "testdata/01-warnme/01-warnme-status-ok.pi", &buf);
+    try readFile(1024 * 1024, "testdata/01-warnme/01-warnme-status-ok.pi", &buf);
     try testing.expect(buf.slice().len > 0);
 }
 

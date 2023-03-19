@@ -387,31 +387,31 @@ pub const Parser = struct {
 
         {
             var testbuf = try std.BoundedArray(u8, 1024).fromSlice("");
-            try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
+            try expandVariablesAndFunctions(1024, &testbuf, variables_sets[0..]);
             try testing.expectEqualStrings("", testbuf.slice());
         }
 
         {
             var testbuf = try std.BoundedArray(u8, 1024).fromSlice("hey");
-            try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
+            try expandVariablesAndFunctions(1024, &testbuf, variables_sets[0..]);
             try testing.expectEqualStrings("hey", testbuf.slice());
         }
 
         {
             var testbuf = try std.BoundedArray(u8, 1024).fromSlice("{{key}}");
-            try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
+            try expandVariablesAndFunctions(1024, &testbuf, variables_sets[0..]);
             try testing.expectEqualStrings("value", testbuf.slice());
         }
 
         {
             var testbuf = try std.BoundedArray(u8, 1024).fromSlice("{{key}}{{key}}");
-            try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
+            try expandVariablesAndFunctions(1024, &testbuf, variables_sets[0..]);
             try testing.expectEqualStrings("valuevalue", testbuf.slice());
         }
 
         {
             var testbuf = try std.BoundedArray(u8, 1024).fromSlice("woop {{key}} doop");
-            try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, variables_sets[0..]);
+            try expandVariablesAndFunctions(1024, &testbuf, variables_sets[0..]);
             try testing.expectEqualStrings("woop value doop", testbuf.slice());
         }
     }
@@ -425,7 +425,7 @@ pub const Parser = struct {
             \\Cookie: RandomSecurityToken={{my_token}}; SomeOtherRandomCookie={{my_token}}
             \\RandomSecurityToken: {{my_token}}
         );
-        try expandVariablesAndFunctions(testbuf.buffer.len, &testbuf, ([_]*kvstore.KvStore{&variables})[0..]);
+        try expandVariablesAndFunctions(8*1024, &testbuf, ([_]*kvstore.KvStore{&variables})[0..]);
         try testing.expectEqualStrings(
             \\Authorization: bearer valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
             \\Cookie: RandomSecurityToken=valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue; SomeOtherRandomCookie=valuevaluevaluevaluevaluevaluevaluevaluevaluevaluevalue
@@ -459,7 +459,7 @@ pub const Parser = struct {
 
         var sets = [_]*kvstore.KvStore{ &s1, &s2, &s3 };
 
-        try expandVariablesAndFunctions(str.buffer.len, &str, sets[0..]);
+        try expandVariablesAndFunctions(1024, &str, sets[0..]);
 
         try testing.expectEqualStrings(str_expected, str.slice());
     }

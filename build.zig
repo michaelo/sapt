@@ -19,7 +19,6 @@ pub fn build(b: *std.build.Builder) !void {
         .optimize = optimize,
     });
     exe.setMainPkgPath(".");
-    exe.linkSystemLibrary("c");
 
     // This seems quite hacky, but makes it currently possible to cross-build provided we have prebuilt libcurl.dll/.so/.dylib (and zlib1?)
     // Cross-builds with windows host: always libcurl
@@ -77,6 +76,8 @@ pub fn build(b: *std.build.Builder) !void {
         .target = target,
         .optimize = optimize,
     });
+    all_tests.setMainPkgPath(".");
+    all_tests.linkSystemLibrary("libcurl");
 
     const test_step = b.step("test", "Run default test suite");
     test_step.dependOn(&all_tests.step);
@@ -87,8 +88,8 @@ pub fn build(b: *std.build.Builder) !void {
             .target = target,
             .optimize = optimize,
         });
+        all_itests.setMainPkgPath(".");
         all_itests.setFilter("integration:"); // Run only tests prefixed with "integration:"
-        all_itests.linkSystemLibrary("c");
         all_itests.linkSystemLibrary("libcurl");
 
         const itest_step = b.step("itest", "Run default integration test suite");

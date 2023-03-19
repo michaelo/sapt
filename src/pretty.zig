@@ -14,10 +14,12 @@ const Writer = std.fs.File.Writer;
 
 const INDENTATION_STEP = 4;
 
+const PrettyPrintFunc = *const fn (Writer, []const u8) anyerror!void;
+
 /// Module entry point. Takes a MIME-type and returns a function which takes a std.fs.File.Writer and a u8-slice to
 /// format and write to that Writer.
 /// The pretty-printers support writing partial chunks.
-pub fn getPrettyPrinterByContentType(content_type: []const u8) *const fn (Writer, []const u8) anyerror!void {
+pub fn getPrettyPrinterByContentType(content_type: []const u8) PrettyPrintFunc {
     if (isContentTypeJson(content_type)) return prettyprintJson;
     if (isContentTypeXml(content_type)) return prettyprintXml;
     if (isContentTypeHtml(content_type)) return prettyprintHtml;
@@ -25,10 +27,10 @@ pub fn getPrettyPrinterByContentType(content_type: []const u8) *const fn (Writer
 }
 
 test "getPrettyPrinterByContentType" {
-    try testing.expectEqual(prettyprintJson, getPrettyPrinterByContentType("application/json"));
-    try testing.expectEqual(prettyprintHtml, getPrettyPrinterByContentType("text/html"));
-    try testing.expectEqual(prettyprintXml, getPrettyPrinterByContentType("text/xml"));
-    try testing.expectEqual(passthrough, getPrettyPrinterByContentType("something/else"));
+    try testing.expect(prettyprintJson == getPrettyPrinterByContentType("application/json"));
+    try testing.expect(prettyprintHtml == getPrettyPrinterByContentType("text/html"));
+    try testing.expect(prettyprintXml == getPrettyPrinterByContentType("text/xml"));
+    try testing.expect(passthrough == getPrettyPrinterByContentType("something/else"));
 }
 
 /// Writes a newline + a given number of spaces to ensure indendation

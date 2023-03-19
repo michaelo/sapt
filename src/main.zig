@@ -24,7 +24,7 @@ const utils = @import("utils.zig");
 const Entry = types.Entry;
 const EntryResult = types.EntryResult;
 const TestContext = types.TestContext;
-const HttpMethod = types.HttpMethod;
+const HttpMethod = httpclient.HttpMethod;
 const HttpHeader = types.HttpHeader;
 const ExtractionEntry = types.ExtractionEntry;
 const AppArguments = argparse.AppArguments;
@@ -635,9 +635,35 @@ pub const ProcessArgs = struct {
     verbose: bool = false,
 };
 pub fn processEntry(entry: *types.Entry, args: ProcessArgs, result: *types.EntryResult) !void {
-    _ = entry;
-    _ = args;
-    _ = result;
+    // TODO: extract allocator?
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
+    defer arena.deinit();
+    const aa = arena.allocator();
+    // _ = args;
+
+    var response = try httpclient.request(aa, entry.method, entry.url.buffer[0..entry.url.buffer.len:0], .{
+        .insecure = args.ssl_insecure,
+        .verbose = args.verbose
+    });
+    defer response.deinit();
+
+    result.response_http_code = response.http_code;
+
+    try result.response_content_type.resize(0);
+    try result.response_content_type.appendSlice(try response.contentType());
+
+    try result.response_first_1mb.resize(0);
+    try result.response_headers_first_1mb.resize(0);
+
+    switch(response.response_type) {
+        .Ok => {
+            
+        },
+        .Error => {
+
+        }
+    }
 }
 
 test "envFileToKvStore" {

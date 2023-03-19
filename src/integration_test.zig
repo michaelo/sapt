@@ -9,7 +9,6 @@ test "integration: passing a well-formed .pi-file against healthy endpoint shall
         "testdata/integrationtests/standalone/success.pi",
     };
 
-    main.httpClientProcessEntry = httpclient.processEntry;
     var stats = try main.mainInner(testing.allocator, args[0..]);
     try testing.expect(stats.num_tests == 1);
     try testing.expect(stats.num_fail == 0);
@@ -21,7 +20,6 @@ test "integration: passing a well-formed .pi-file against non-healthy endpoint s
         "testdata/integrationtests/standalone/404.pi",
     };
 
-    main.httpClientProcessEntry = httpclient.processEntry;
     var stats = try main.mainInner(testing.allocator, args[0..]);
     try testing.expect(stats.num_tests == 1);
     try testing.expect(stats.num_fail == 1);
@@ -33,7 +31,6 @@ test "integration: suite with .env" {
         "testdata/integrationtests/suite_with_env",
     };
 
-    main.httpClientProcessEntry = httpclient.processEntry;
     var stats = try main.mainInner(testing.allocator, args[0..]);
     try testing.expect(stats.num_tests == 2);
     try testing.expect(stats.num_fail == 0);
@@ -41,7 +38,6 @@ test "integration: suite with .env" {
 }
 
 test "integration: requiring -Darg" {
-    main.httpClientProcessEntry = httpclient.processEntry;
 
     {
         var args = [_][]const u8{
