@@ -98,7 +98,7 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
     }
 }
 
-const FunctionEntryFuncPtr = fn (std.mem.Allocator, []const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
+const FunctionEntryFuncPtr = *const fn (std.mem.Allocator, []const u8, *std.BoundedArray(u8, 1024)) anyerror!void;
 
 const FunctionEntry = struct {
     name: []const u8,
@@ -262,8 +262,8 @@ test "bracketparsing - variables and functions" {
     try variables.add("var3", "woop");
     // var functions = [_]Pair{};
 
-    var pairs = try findAllVariables(str.buffer.len, MAX_VARIABLES, &str);
-    try expandVariables(str.buffer.len, MAX_VARIABLES, &str, &pairs, &variables);
+    var pairs = try findAllVariables(1024, MAX_VARIABLES, &str);
+    try expandVariables(1024, MAX_VARIABLES, &str, &pairs, &variables);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var1}}") == null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var2}}") == null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{var3}}") == null);
@@ -273,6 +273,6 @@ test "bracketparsing - variables and functions" {
     try testing.expect(std.mem.indexOf(u8, str.slice(), "v2") != null);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "woop") != null);
 
-    try expandFunctions(str.buffer.len, MAX_VARIABLES, &str, &pairs);
+    try expandFunctions(1024, MAX_VARIABLES, &str, &pairs);
     try testing.expect(std.mem.indexOf(u8, str.slice(), "{{myfunc") == null);
 }

@@ -11,7 +11,7 @@ const testing = std.testing;
 ///
 /// This is a simple variant which takes a predefined common function to activate for all work-items
 /// Requirement: Set up from single thread, no modifications after start()
-pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, worker_function: fn (*PayloadType) void) type {
+pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, comptime worker_function: *const fn (*PayloadType) void) type {
     const MAX_NUM_THREADS = 128;
     const ThreadPoolState = enum { NotStarted, Running, Finished };
     return struct {
@@ -24,7 +24,7 @@ pub fn ThreadPool(comptime PayloadType: type, comptime TaskCapacity: usize, work
         next_work_item_idx: usize = 0,
         next_free_item_idx: usize = 0,
 
-        function: fn (*PayloadType) void = worker_function,
+        function: *const fn (*PayloadType) void = worker_function,
 
         thread_pool: [MAX_NUM_THREADS]std.Thread = undefined,
 

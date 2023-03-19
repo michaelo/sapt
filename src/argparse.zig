@@ -503,7 +503,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
     const readFlags = std.fs.File.OpenFlags{};
     {
         var i: usize = 0;
-        var file: *FilePathEntry = undefined;
+        var file: *const FilePathEntry = undefined;
         while (i < files.slice().len) : (i += 1) {
             file = &files.get(i);
             // Verify that file/folder exists, otherwise fail
@@ -513,7 +513,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
             };
 
             // Try to open as dir
-            var dir = cwd.openDir(file.constSlice(), .{ .iterate = true }) catch |e| switch (e) {
+            var dir = cwd.openIterableDir(file.constSlice(), .{ .access_sub_paths=true }) catch |e| switch (e) {
                 // Not a dir, that's OK
                 error.NotDir => continue,
                 else => return error.UnknownError,
@@ -523,7 +523,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
             var d_it = dir.iterate();
             var dir_slice_start = i;
             while (try d_it.next()) |a_path| {
-                var stat = try (try dir.openFile(a_path.name, readFlags)).stat();
+                var stat = try (try dir.dir.openFile(a_path.name, readFlags)).stat();
                 switch (stat.kind) {
                     .File => {
                         var item = utils.initBoundedArray(u8, config.MAX_PATH_LEN);

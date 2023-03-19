@@ -367,17 +367,17 @@ pub const Parser = struct {
             }
         };
 
-        var pairs = try findAllVariables(buffer.buffer.len, MAX_VARIABLES, buffer);
+        var pairs = try findAllVariables(S, MAX_VARIABLES, buffer);
         std.sort.sort(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
 
         if (maybe_variables_sets) |variables_sets| for (variables_sets) |variables| {
-            expandVariables(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch (e) {
+            expandVariables(S, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch (e) {
                 //error.NoSuchVariableFound => {}, // This is OK, as we don't know which variable_set the variable to expand may be in
                 else => return e,
             };
         };
 
-        try expandFunctions(buffer.buffer.len, MAX_VARIABLES, buffer, &pairs);
+        try expandFunctions(S, MAX_VARIABLES, buffer, &pairs);
     }
 
     test "expandVariablesAndFunctions" {

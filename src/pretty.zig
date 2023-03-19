@@ -17,7 +17,7 @@ const INDENTATION_STEP = 4;
 /// Module entry point. Takes a MIME-type and returns a function which takes a std.fs.File.Writer and a u8-slice to
 /// format and write to that Writer.
 /// The pretty-printers support writing partial chunks.
-pub fn getPrettyPrinterByContentType(content_type: []const u8) fn (Writer, []const u8) anyerror!void {
+pub fn getPrettyPrinterByContentType(content_type: []const u8) *const fn (Writer, []const u8) anyerror!void {
     if (isContentTypeJson(content_type)) return prettyprintJson;
     if (isContentTypeXml(content_type)) return prettyprintXml;
     if (isContentTypeHtml(content_type)) return prettyprintHtml;
