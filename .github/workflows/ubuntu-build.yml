@@ -23,7 +23,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v1.3.0
+        uses: goto-bus-stop/setup-zig@v2.0.1
         with:
           version: master
       - name: Install dependencies
