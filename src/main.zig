@@ -644,7 +644,7 @@ pub fn processEntry(entry: *types.Entry, args: ProcessArgs, result: *types.Entry
 
     var response = try httpclient.request(aa, entry.method, entry.url.buffer[0..entry.url.buffer.len:0], .{
         .insecure = args.ssl_insecure,
-        .verbose = args.verbose
+        .verbose = args.verbose,
     });
     defer response.deinit();
 
@@ -654,7 +654,14 @@ pub fn processEntry(entry: *types.Entry, args: ProcessArgs, result: *types.Entry
     try result.response_content_type.appendSlice(try response.contentType());
 
     try result.response_first_1mb.resize(0);
+    if(response.body) |body| {
+        try result.response_first_1mb.appendSlice(body.items);
+    }
+
     try result.response_headers_first_1mb.resize(0);
+    if(response.headers) |headers| {
+        try result.response_headers_first_1mb.appendSlice(headers.items);
+    }
 
     switch(response.response_type) {
         .Ok => {
