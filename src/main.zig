@@ -50,7 +50,7 @@ const ExitCode = enum(u8) {
 };
 
 pub fn exit(code: ExitCode) noreturn {
-    std.process.exit(@enumToInt(code));
+    std.process.exit(@intFromEnum(code));
 }
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
@@ -237,8 +237,8 @@ pub const AppContext = struct {
                         self.result.conclusion = false;
                     }
                     var entry_time = std.time.milliTimestamp() - entry_time_start;
-                    self.stats.time_max = std.math.max(entry_time, self.stats.time_max);
-                    self.stats.time_min = std.math.min(entry_time, self.stats.time_min);
+                    self.stats.time_max = @max(entry_time, self.stats.time_max);
+                    self.stats.time_min = @min(entry_time, self.stats.time_min);
                     self.stats.time_total += entry_time;
                 }
             };
@@ -278,13 +278,13 @@ pub const AppContext = struct {
                     result.conclusion = false;
                 }
                 var entry_time = std.time.milliTimestamp() - entry_time_start;
-                stats.time_max = std.math.max(entry_time, stats.time_max);
-                stats.time_min = std.math.min(entry_time, stats.time_min);
+                stats.time_max = @max(entry_time, stats.time_max);
+                stats.time_min = @min(entry_time, stats.time_min);
             }
             stats.time_total = std.time.milliTimestamp() - time_total_start;
         }
 
-        stats.time_avg = @divTrunc(stats.time_total, @intCast(i64, repeats));
+        stats.time_avg = @divTrunc(stats.time_total, @as(i64, @intCast(repeats)));
     }
 
     fn extractExtractionEntries(app_ctx: *AppContext, entry: Entry, result: EntryResult, store: *kvstore.KvStore) !void {
@@ -337,10 +337,10 @@ pub const AppContext = struct {
 
         // Print stats
         if (repeats == 1) {
-            console.stdColored(.Dim, "  time: {}ms\n", .{stats.time_total});
+            console.stdColored(.dim, "  time: {}ms\n", .{stats.time_total});
         } else {
-            console.stdColored(.Dim, "  {} iterations. {} OK, {} Error\n", .{ repeats, repeats - test_ctx.result.num_fails, test_ctx.result.num_fails });
-            console.stdColored(.Dim, "  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{ stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg });
+            console.stdColored(.dim, "  {} iterations. {} OK, {} Error\n", .{ repeats, repeats - test_ctx.result.num_fails, test_ctx.result.num_fails });
+            console.stdColored(.dim, "  time: {}ms/{} iterations [{}ms-{}ms] avg:{}ms\n", .{ stats.time_total, repeats, stats.time_min, stats.time_max, stats.time_avg });
         }
 
         // Check if test as a total is considered successfull (http code match + optional pattern match requirement)
@@ -376,13 +376,13 @@ pub const AppContext = struct {
         if ((!conclusion and !args.silent) or args.show_response_data) {
             // Headers
             if (test_ctx.result.response_headers_first_1mb.slice().len > 0) {
-                console.stdColored(.Bold, "Incoming headers (up to 1024KB):\n", .{});
+                console.stdColored(.bold, "Incoming headers (up to 1024KB):\n", .{});
                 console.stdPrint("{s}\n\n", .{std.mem.trimRight(u8, utils.sliceUpTo(u8, test_ctx.result.response_headers_first_1mb.slice(), 0, 1024 * 1024), "\r\n")});
             }
 
             // Body
             if (test_ctx.result.response_first_1mb.slice().len > 0) {
-                console.stdColored(.Bold, "Response (up to 1024KB):\n", .{});
+                console.stdColored(.bold, "Response (up to 1024KB):\n", .{});
                 if (!args.show_pretty_response_data) {
                     console.debugPrint("{s}\n\n", .{utils.sliceUpTo(u8, test_ctx.result.response_first_1mb.slice(), 0, 1024 * 1024)});
                 } else if (console.debug_writer) |debug_writer| {
@@ -511,7 +511,7 @@ pub const AppContext = struct {
             \\------------------
             \\FINISHED - total time: {d}s
             \\
-        , .{ num_processed - num_failed, total_num_tests, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
+        , .{ num_processed - num_failed, total_num_tests, @as(f64, @floatFromInt(std.time.milliTimestamp() - time_start)) / 1000 });
 
         return ExecutionStats{
             .num_tests = num_processed,
@@ -591,7 +591,7 @@ pub const AppContext = struct {
             \\------------------
             \\FINISHED - total time: {d}s
             \\
-        , .{ num_processed - num_failed, total_num_tests, @intToFloat(f64, std.time.milliTimestamp() - time_start) / 1000 });
+        , .{ num_processed - num_failed, total_num_tests, @as(f64, @floatFromInt(std.time.milliTimestamp() - time_start)) / 1000 });
 
         return ExecutionStats{
             .num_tests = num_processed,

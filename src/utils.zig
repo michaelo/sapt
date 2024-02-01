@@ -9,11 +9,11 @@ pub fn initBoundedArray(comptime T: type, comptime capacity: usize) std.BoundedA
 
 /// UTILITY: Returns a slice from <from> up to <to> or slice.len
 pub fn sliceUpTo(comptime T: type, slice: []T, from: usize, to: usize) []T {
-    return slice[from..std.math.min(slice.len, to)];
+    return slice[from..@min(slice.len, to)];
 }
 
 pub fn constSliceUpTo(comptime T: type, slice: []const T, from: usize, to: usize) []const T {
-    return slice[from..std.math.min(slice.len, to)];
+    return slice[from..@min(slice.len, to)];
 }
 
 // TODO: Are there any stdlib-variants of this?

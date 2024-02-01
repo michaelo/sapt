@@ -259,7 +259,7 @@ pub const Parser = struct {
         ;
 
         try parser.parseContents(data, &entry, 0);
-        try testing.expectEqual(@intCast(usize, 1), entry.extraction_entries.slice().len);
+        try testing.expectEqual(@intCast(1), entry.extraction_entries.slice().len);
         try testing.expectEqualStrings("myvar", entry.extraction_entries.get(0).name.slice());
         try testing.expectEqualStrings("regexwhichextractsvalue", entry.extraction_entries.get(0).expression.slice());
     }
@@ -368,7 +368,7 @@ pub const Parser = struct {
         };
 
         var pairs = try findAllVariables(S, MAX_VARIABLES, buffer);
-        std.sort.sort(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
+        std.sort.insertion(BracketPair, pairs.slice(), {}, SortBracketsFunc.byDepthDesc);
 
         if (maybe_variables_sets) |variables_sets| for (variables_sets) |variables| {
             expandVariables(S, MAX_VARIABLES, buffer, &pairs, variables) catch |e| switch (e) {
@@ -578,9 +578,9 @@ pub const Parser = struct {
                     // This parses until we find start of another known segment type
                     // This chunk will later be properly validated when attempted parsed
                     // Strategy: store pointer to start, iterate until end, store pointer to end, create slice from pointers
-                    var buf_start = @ptrToInt(buf.ptr);
+                    var buf_start = @intFromPtr(buf.ptr);
                     var chunk_line_start = line_idx;
-                    var start_idx = @ptrToInt(line.ptr) - buf_start;
+                    var start_idx = @intFromPtr(line.ptr) - buf_start;
                     var end_idx: ?u64 = null;
                     // Parse until next >, @ or eof
                     chunk_blk: while (main_it.next()) |line2| {
@@ -590,9 +590,9 @@ pub const Parser = struct {
                         switch (main_it.rest()[0]) {
                             '>', '@' => {
                                 if (line2.len == 0) {
-                                    end_idx = @ptrToInt(line2.ptr) - buf_start; // line2.len-1?
+                                    end_idx = @intFromPtr(line2.ptr) - buf_start; // line2.len-1?
                                 } else {
-                                    end_idx = @ptrToInt(&line2[line2.len - 1]) - buf_start; // line2.len-1?
+                                    end_idx = @intFromPtr(&line2[line2.len - 1]) - buf_start; // line2.len-1?
                                 }
                                 result[seg_idx] = .{
                                     .line_start = chunk_line_start,
@@ -608,7 +608,7 @@ pub const Parser = struct {
 
                     if (end_idx == null) {
                         // Reached end of file
-                        end_idx = @ptrToInt(&buf[buf.len - 1]) - buf_start;
+                        end_idx = @intFromPtr(&buf[buf.len - 1]) - buf_start;
 
                         result[seg_idx] = .{
                             .line_start = chunk_line_start,
@@ -642,7 +642,7 @@ test "parse playbook single test fileref" {
     var segments = utils.initBoundedArray(Parser.PlaybookSegment, 128);
     try segments.resize(Parser.parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-    try testing.expectEqual(@intCast(usize, 1), segments.len);
+    try testing.expectEqual(@intCast(1), segments.len);
 
     try testing.expectEqual(Parser.PlaybookSegmentType.TestInclude, segments.get(0).segment_type);
     try testing.expectEqualStrings("some/test.pi", segments.get(0).slice);
@@ -656,9 +656,9 @@ test "parse playbook test filerefs can have repeats" {
     var segments = utils.initBoundedArray(Parser.PlaybookSegment, 128);
     try segments.resize(Parser.parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-    try testing.expectEqual(@intCast(usize, 1), segments.len);
+    try testing.expectEqual(@intCast(1), segments.len);
 
-    try testing.expectEqual(@intCast(usize, 10), segments.get(0).meta.TestInclude.repeats);
+    try testing.expectEqual(@intCast(10), segments.get(0).meta.TestInclude.repeats);
 }
 
 test "parse playbook fileref and envref" {
@@ -670,7 +670,7 @@ test "parse playbook fileref and envref" {
     var segments = utils.initBoundedArray(Parser.PlaybookSegment, 128);
     try segments.resize(Parser.parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-    try testing.expectEqual(@intCast(usize, 2), segments.len);
+    try testing.expectEqual(@intCast(2), segments.len);
 
     try testing.expectEqual(Parser.PlaybookSegmentType.EnvInclude, segments.get(1).segment_type);
     try testing.expectEqualStrings("some/.env", segments.get(1).slice);
@@ -684,7 +684,7 @@ test "parse playbook single raw var" {
     var segments = utils.initBoundedArray(Parser.PlaybookSegment, 128);
     try segments.resize(Parser.parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-    try testing.expectEqual(@intCast(usize, 1), segments.len);
+    try testing.expectEqual(@intCast(1), segments.len);
 
     try testing.expectEqual(Parser.PlaybookSegmentType.EnvRaw, segments.get(0).segment_type);
     try testing.expectEqualStrings("MY_ENV=somevalue", segments.get(0).slice);
@@ -698,7 +698,7 @@ test "parse playbook raw test" {
     var segments = utils.initBoundedArray(Parser.PlaybookSegment, 128);
     try segments.resize(Parser.parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-    try testing.expectEqual(@intCast(usize, 1), segments.len);
+    try testing.expectEqual(@intCast(1), segments.len);
 
     try testing.expectEqual(Parser.PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
     try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
@@ -715,7 +715,7 @@ test "parse playbook two raw tests, one with extraction-expressions" {
     var segments = utils.initBoundedArray(Parser.PlaybookSegment, 128);
     try segments.resize(Parser.parsePlaybook(buf, segments.unusedCapacitySlice()));
 
-    try testing.expectEqual(@intCast(usize, 2), segments.len);
+    try testing.expectEqual(@intCast(2), segments.len);
 
     try testing.expectEqual(Parser.PlaybookSegmentType.TestRaw, segments.get(0).segment_type);
     try testing.expectEqualStrings("> GET https://my.service/api\n< 200", segments.get(0).slice);
@@ -772,7 +772,7 @@ test "parse super complex playbook" {
     var segments = utils.initBoundedArray(PlaybookSegment, 128);
     try segments.resize(Parser.parsePlaybook(buf_complex_playbook_example, segments.unusedCapacitySlice()));
 
-    try testing.expectEqual(@intCast(usize, 7), segments.len);
+    try testing.expectEqual(@intCast(7), segments.len);
     try testing.expectEqual(PlaybookSegmentType.EnvInclude, segments.get(0).segment_type);
     try testing.expectEqual(PlaybookSegmentType.EnvRaw, segments.get(1).segment_type);
     try testing.expectEqual(PlaybookSegmentType.TestInclude, segments.get(2).segment_type);

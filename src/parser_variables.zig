@@ -78,7 +78,7 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
         if (!(std.mem.indexOf(u8, key, "(") != null and std.mem.indexOf(u8, key, ")") != null)) {
             if (variables.get(key)) |value| {
                 var value_len = value.len;
-                end_delta = @intCast(i32, value_len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
+                end_delta = @as(i32, @intCast(value_len)) - (@as(i32, @intCast(key.len)) + 4); // 4 == {{}}
                 buffer.replaceRange(pair.start, pair_len, value) catch {
                     return error.BufferTooSmall;
                 };
@@ -86,8 +86,8 @@ pub fn expandVariables(comptime BufferSize: usize, comptime MaxNumVariables: usi
 
                 for (pairs.slice()[0..]) |*pair2| {
                     if (pair2.resolved) continue; // Since we no longer go exclusively by depth (we run this function multiple times with different sets), we have to check from start and filter out resolved instead
-                    if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try utils.addUnsignedSigned(u64, i64, pair2.start, end_delta);
-                    if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try utils.addUnsignedSigned(u64, i64, pair2.end, end_delta);
+                    if (pair2.start > @as(i64, @intCast(pair.start + 1))) pair2.start = try utils.addUnsignedSigned(u64, i64, pair2.start, end_delta);
+                    if (pair2.end > @as(i64, @intCast(pair.start + 1))) pair2.end = try utils.addUnsignedSigned(u64, i64, pair2.end, end_delta);
                 }
             } else {
                 // TODO: Make verbose-dependent?
@@ -237,11 +237,11 @@ pub fn expandFunctions(comptime BufferSize: usize, comptime MaxNumVariables: usi
                 return error.BufferTooSmall;
             };
             pair.resolved = true;
-            end_delta = @intCast(i32, func_buf.slice().len) - (@intCast(i32, key.len) + 4); // 4 == {{}}
+            end_delta = @as(i32, @intCast(func_buf.slice().len)) - (@as(i32, @intCast(key.len)) + 4); // 4 == {{}}
 
             for (pairs.slice()[i + 1 ..]) |*pair2| {
-                if (pair2.start > @intCast(i64, pair.start + 1)) pair2.start = try utils.addUnsignedSigned(u64, i64, pair2.start, end_delta);
-                if (pair2.end > @intCast(i64, pair.start + 1)) pair2.end = try utils.addUnsignedSigned(u64, i64, pair2.end, end_delta);
+                if (pair2.start > @as(i64, @intCast(pair.start + 1))) pair2.start = try utils.addUnsignedSigned(u64, i64, pair2.start, end_delta);
+                if (pair2.end > @as(i64, @intCast(pair.start + 1))) pair2.end = try utils.addUnsignedSigned(u64, i64, pair2.end, end_delta);
             }
         }
     }

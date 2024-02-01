@@ -80,8 +80,8 @@ pub const RequestResponse = struct {
 };
 
 fn writeToArrayListCallback(data: *anyopaque, size: c_uint, nmemb: c_uint, user_data: *anyopaque) callconv(.C) c_uint {
-    var buffer = @intToPtr(*std.ArrayList(u8), @ptrToInt(user_data));
-    var typed_data = @intToPtr([*]u8, @ptrToInt(data));
+    var buffer: *std.ArrayList(u8) = @ptrFromInt(@intFromPtr(user_data));
+    var typed_data: [*]u8 = @ptrFromInt(@intFromPtr(data));
     buffer.appendSlice(typed_data[0 .. nmemb * size]) catch return 0;
     return nmemb * size;
 }
@@ -137,17 +137,17 @@ pub fn request(allocator: std.mem.Allocator, method: HttpMethod, url: [:0]const 
     }
 
     // insecure?
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, @boolToInt(params.insecure))) != cURL.CURLE_OK) {
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_SSL_VERIFYPEER, @as(c_long, @intCast(@intFromBool(params.insecure)))) != cURL.CURLE_OK) {
         return error.CouldNotSetSslVerifyPeer;
     }
 
     // TODO: Now headers will currently be appended for all requests. Need to clean headers when redirected...
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_FOLLOWLOCATION, @intCast(c_long, @boolToInt(params.follow_redirect))) != cURL.CURLE_OK) {
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_FOLLOWLOCATION, @as(c_long, @intCast(@intFromBool(params.follow_redirect)))) != cURL.CURLE_OK) {
         return error.CouldNotSetFollow;
     }
 
     // Verbosity
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @intCast(c_long, @boolToInt(params.verbose))) != cURL.CURLE_OK) {
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_VERBOSE, @as(c_long, @intCast(@intFromBool(params.verbose)))) != cURL.CURLE_OK) {
         return error.CouldNotSetVerbose;
     }
 

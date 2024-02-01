@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const Color = std.debug.TTY.Color;
+pub const Color = std.io.tty.Color;
 
 /// Basic output-wrapper with console-escape-codes for supported platforms.
 /// Convenience-oriented with regards to enabling different levels of output
@@ -15,7 +15,7 @@ pub const Console = struct {
     error_writer: ?std.fs.File.Writer = null,
     verbose_writer: ?std.fs.File.Writer = null,
 
-    ttyconf: std.debug.TTY.Config,
+    ttyconf: std.io.tty.Config,
 
     /// Returns a Console which suppresses all output
     pub fn initNull() Self {
@@ -42,15 +42,15 @@ pub const Console = struct {
             .std_writer = writer,
             .error_writer = writer,
             .verbose_writer = writer,
-            .ttyconf = std.debug.detectTTYConfig(std.io.getStdErr()),
+            .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()),
         };
     }
 
-    fn colorConfig(value: ColorConfig) std.debug.TTY.Config {
+    fn colorConfig(value: ColorConfig) std.io.tty.Config {
         return switch (value) {
             .on => .escape_codes,
             .off => .no_color,
-            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+            .auto => std.io.tty.detectConfig(std.io.getStdErr()),
         };
     }
 
@@ -63,7 +63,7 @@ pub const Console = struct {
         }
         writer.print(fmt, args) catch {};
         if (maybe_color != null) {
-            self.ttyconf.setColor(writer, .Reset) catch {};
+            self.ttyconf.setColor(writer, .reset) catch {};
         }
     }
 
@@ -80,7 +80,7 @@ pub const Console = struct {
     }
 
     pub fn errorPrint(self: *const Self, comptime fmt: []const u8, args: anytype) void {
-        self.errorColored(.Red, "ERROR: ", .{});
+        self.errorColored(.red, "ERROR: ", .{});
         self.out(self.error_writer, null, fmt, args);
     }
 

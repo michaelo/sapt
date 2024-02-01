@@ -1,13 +1,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.build.Builder) !void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
-    // b.addStaticLibrary("libcurl", "");
     const target = b.standardTargetOptions(.{});
-
     const optimize = b.standardOptimizeOption(.{});
 
     const exe = b.addExecutable(.{
@@ -17,8 +11,8 @@ pub fn build(b: *std.build.Builder) !void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .main_pkg_path = .{.path="."}
     });
-    exe.setMainPkgPath(".");
 
     // This seems quite hacky, but makes it currently possible to cross-build provided we have prebuilt libcurl.dll/.so/.dylib (and zlib1?)
     // Cross-builds with windows host: always libcurl
@@ -59,9 +53,9 @@ pub fn build(b: *std.build.Builder) !void {
     // exe.addLibPath("xbuild/libs/x86_64-linux");
     // exe.addLibPath("xbuild/libs/x86_64-mac");
     // exe.addLibPath("xbuild/libs/x86_64-windows/lib");
-    exe.install();
+    b.installArtifact(exe);
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);
@@ -70,29 +64,30 @@ pub fn build(b: *std.build.Builder) !void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-
     const all_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/test.zig" },
         .target = target,
         .optimize = optimize,
+        .main_pkg_path = .{.path="."}
     });
-    all_tests.setMainPkgPath(".");
     all_tests.linkSystemLibrary("libcurl");
 
+    const run_unit_tests = b.addRunArtifact(all_tests);
     const test_step = b.step("test", "Run default test suite");
-    test_step.dependOn(&all_tests.step);
+    test_step.dependOn(&run_unit_tests.step);
 
     if(target.isNative()) {
         const all_itests = b.addTest(.{
             .root_source_file = .{ .path = "src/integration_test.zig" },
             .target = target,
             .optimize = optimize,
+            .main_pkg_path = .{.path="."},
+            .filter = "integration:"
         });
-        all_itests.setMainPkgPath(".");
-        all_itests.setFilter("integration:"); // Run only tests prefixed with "integration:"
         all_itests.linkSystemLibrary("libcurl");
 
+        const run_itests = b.addRunArtifact(all_itests);
         const itest_step = b.step("itest", "Run default integration test suite");
-        itest_step.dependOn(&all_itests.step);
+        itest_step.dependOn(&run_itests.step);
     }
 }

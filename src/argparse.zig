@@ -525,7 +525,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
             while (try d_it.next()) |a_path| {
                 var stat = try (try dir.dir.openFile(a_path.name, readFlags)).stat();
                 switch (stat.kind) {
-                    .File => {
+                    .file => {
                         var item = utils.initBoundedArray(u8, config.MAX_PATH_LEN);
                         try item.appendSlice(file.constSlice());
                         try item.appendSlice("/");
@@ -534,7 +534,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
                         try files.insert(i, item);
                         i += 1;
                     },
-                    .Directory => {
+                    .directory => {
                         // debug("Found subdir: {s}\n", .{a_path.name});
                         // If recursive: process?
                     },
@@ -547,7 +547,7 @@ pub fn processInputFileArguments(comptime max_files: usize, files: *std.BoundedA
             i -= 1;
 
             // Ensure folder-entries is sorted
-            std.sort.sort(FilePathEntry, files.slice()[dir_slice_start .. i + 1], {}, struct {
+            std.sort.insertion(FilePathEntry, files.slice()[dir_slice_start .. i + 1], {}, struct {
                 fn func(context: void, a: FilePathEntry, b: FilePathEntry) bool {
                     _ = context;
                     return std.mem.lessThan(u8, a.constSlice(), b.constSlice());

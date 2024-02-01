@@ -33,7 +33,7 @@ pub fn readFileRel(comptime S: usize, dir: std.fs.Dir, path: []const u8, target_
     defer file.close();
 
     const size = try file.getEndPos();
-    try target_buf.resize(std.math.min(size, target_buf.capacity()));
+    try target_buf.resize(@min(size, target_buf.capacity()));
     _ = try file.readAll(target_buf.slice()[0..]);
 }
 
